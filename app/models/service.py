@@ -23,6 +23,9 @@ class ServiceCategory(Base, UUIDPKMixin, TimestampMixin):
     icon_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     display_order: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Throwaway column added to verify the GitHub Actions migration workflow can apply a real
+    # schema change end-to-end. Safe to drop in a follow-up migration once confirmed working.
+    ci_migration_test_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     services: Mapped[list["Service"]] = relationship(
         back_populates="category", cascade="all, delete-orphan"
