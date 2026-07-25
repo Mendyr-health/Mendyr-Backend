@@ -1,0 +1,1 @@
+"""Mendyr backend application package."""
