@@ -13,7 +13,10 @@ requires-python = ">=3.11"
 
 dependencies = [
     # web
-    "fastapi>=0.115.0",
+    # [standard] pulls in fastapi-cli — required for the `fastapi` CLI itself to run at all
+    # (e.g. FastAPI Cloud's deploy container launches the app via `fastapi run`, which refuses
+    # to start without this extra: "To use the fastapi command, please install fastapi[standard]").
+    "fastapi[standard]>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "gunicorn>=23.0.0",
     "python-multipart>=0.0.12",
