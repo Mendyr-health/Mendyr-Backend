@@ -6,6 +6,7 @@ Never hardcode secrets — this module only defines shape + defaults for local d
 """
 
 from functools import lru_cache
+from urllib.parse import quote
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,8 +49,13 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
+        # URL-encode user/password — a raw password containing '@', ':', '/', etc. (common in
+        # generated DB passwords, e.g. Supabase's) would otherwise be misparsed as part of the
+        # host, silently connecting to the wrong hostname or failing DNS resolution entirely.
+        user = quote(self.POSTGRES_USER, safe="")
+        password = quote(self.POSTGRES_PASSWORD, safe="")
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql+asyncpg://{user}:{password}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
@@ -57,8 +63,10 @@ class Settings(BaseSettings):
     @property
     def SQLALCHEMY_SYNC_DATABASE_URI(self) -> str:
         """Sync driver URL — used by Alembic migrations."""
+        user = quote(self.POSTGRES_USER, safe="")
+        password = quote(self.POSTGRES_PASSWORD, safe="")
         base = (
-            f"postgresql+psycopg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"postgresql+psycopg://{user}:{password}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
         return f"{base}?sslmode=require" if self.POSTGRES_SSL_REQUIRED else base

@@ -318,7 +318,14 @@ run (this bit us once while building this scaffold — see the fixture's docstri
 
 ---
 
-## 9. What's production-ready vs. what's a deliberate stub
+## 9. Deploying
+
+See `DEPLOYMENT.md` for deploying to FastAPI Cloud — including the important caveat that it
+only runs the ASGI app, not the Celery worker/beat processes the dispatch engine depends on.
+
+---
+
+## 10. What's production-ready vs. what's a deliberate stub
 
 Fully wired and verified against a live Postgres+PostGIS + Redis + running server:
 config/security/logging, all 30 ORM models, the initial migration, the OTP→JWT auth flow, role
