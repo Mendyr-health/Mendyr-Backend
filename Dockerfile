@@ -1,25 +1,34 @@
 # syntax=docker/dockerfile:1
 FROM python:3.12-slim AS base
 
+# Pinned to the same uv version used to generate uv.lock — keeps container builds
+# byte-identical to what `uv sync` installs on a developer's machine.
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/srv/.venv/bin:$PATH"
 
 WORKDIR /srv
 
-# libpq-dev: psycopg build; the rest are Pillow/geo runtime libs pulled in transitively.
+# libpq-dev: psycopg build; the rest are geo/runtime libs pulled in transitively.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
-COPY app ./app
-RUN pip install --upgrade pip && pip install .
+# Install dependencies first (cached separately from app code) straight from the lock file —
+# `--frozen` fails the build if uv.lock is stale instead of silently re-resolving.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
+COPY app ./app
 COPY alembic.ini ./
 COPY alembic ./alembic
+RUN uv sync --frozen --no-dev
 
 RUN addgroup --system mendyr && adduser --system --ingroup mendyr mendyr
 USER mendyr

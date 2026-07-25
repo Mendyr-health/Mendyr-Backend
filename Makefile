@@ -1,36 +1,45 @@
-.PHONY: install dev run worker beat migrate revision lint format test up down logs
+.PHONY: install dev run worker beat migrate revision seed lint format test up down logs lock
+
+# Every target runs through `uv run`, which uses the exact versions pinned in uv.lock —
+# no manual venv activation needed, and every teammate gets identical dependency versions.
 
 install:
-	pip install -e ".[dev]"
+	uv sync --extra dev
+
+lock:
+	uv lock
 
 dev:
-	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 run:
-	gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000
+	uv run gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000
 
 worker:
-	celery -A app.workers.celery_app worker --loglevel=info
+	uv run celery -A app.workers.celery_app worker --loglevel=info
 
 beat:
-	celery -A app.workers.celery_app beat --loglevel=info
+	uv run celery -A app.workers.celery_app beat --loglevel=info
 
 migrate:
-	alembic upgrade head
+	uv run alembic upgrade head
 
 revision:
-	alembic revision --autogenerate -m "$(m)"
+	uv run alembic revision --autogenerate -m "$(m)"
+
+seed:
+	uv run python -m scripts.seed
 
 lint:
-	ruff check app/
-	mypy app/
+	uv run ruff check app/
+	uv run mypy app/
 
 format:
-	ruff format app/
-	ruff check --fix app/
+	uv run ruff format app/
+	uv run ruff check --fix app/
 
 test:
-	pytest --cov=app --cov-report=term-missing
+	uv run pytest --cov=app --cov-report=term-missing
 
 up:
 	docker compose up --build

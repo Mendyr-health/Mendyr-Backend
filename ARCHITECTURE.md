@@ -27,6 +27,7 @@ checks) as part of building this scaffold. It is a real, running skeleton — no
 | Observability         | structlog (JSON logs in prod), Sentry, Prometheus (`/metrics`)       |
 | Testing               | pytest + pytest-asyncio + httpx.AsyncClient                         |
 | Lint/format/types     | ruff, mypy                                                           |
+| Dependency management | [uv](https://docs.astral.sh/uv/) — `uv.lock` pins every package to an exact version so `uv sync` installs identically on any machine |
 
 ---
 
@@ -103,6 +104,8 @@ Mendly-Backend/
 ├── docker-compose.yml            # postgres(+postgis) + redis + api + celery worker + celery beat
 ├── Dockerfile
 ├── Makefile                      # make dev / migrate / test / up / ...
+├── pyproject.toml                 # project + dependency declarations (>= floors)
+├── uv.lock                        # exact resolved versions — commit this, everyone gets the same install
 └── .env.example
 ```
 
@@ -264,16 +267,22 @@ refunds the remainder via `PaymentService.refund`.
 
 ## 8. Running it locally
 
+**See `SETUP.md` for full step-by-step instructions** (Supabase managed Postgres, Docker
+Compose, and native macOS/Windows setups, each with a troubleshooting table). Quick summary:
+
 ```bash
 cp .env.example .env                 # edit SECRET_KEY, Razorpay/MSG91 keys, etc.
-make install                         # pip install -e ".[dev]"
+make install                         # uv sync --extra dev — installs the exact versions in uv.lock
+
+# Supabase — managed Postgres+PostGIS, no local DB install (see SETUP.md "Option 0"):
+#   point POSTGRES_* at Supabase's Session pooler connection details, set POSTGRES_SSL_REQUIRED=true
 
 # Option A — Docker (postgres+postgis, redis, api, worker, beat all wired):
 make up
 
 # Option B — bare-metal (requires local Postgres+PostGIS and Redis):
-alembic upgrade head
-python -m scripts.seed               # reference data: categories, services, specializations
+make migrate                         # uv run alembic upgrade head
+make seed                            # reference data: categories, services, specializations
 make dev                             # uvicorn --reload on :8000
 make worker                          # in another shell — Celery worker
 make beat                            # in another shell — Celery beat (offer-expiry sweep, payouts, reminders)

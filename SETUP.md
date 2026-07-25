@@ -1,12 +1,78 @@
 # Local Setup Guide
 
-Two ways to run Mendyr locally: **Docker Compose** (simplest, identical on every OS) or a
-**native setup** installing Postgres+PostGIS/Redis directly. Instructions below cover both
-**macOS** and **Windows**.
+Three ways to get a Postgres+PostGIS database for Mendyr: **Supabase** (managed, zero local
+install), **Docker Compose** (simplest self-hosted option, identical on every OS), or a **native
+setup** installing Postgres+PostGIS/Redis directly. Instructions below cover macOS and Windows
+for the self-hosted paths.
 
-**Recommendation:** use Docker Compose. It's the same four commands on both platforms, and on
-Windows it sidesteps two genuinely annoying problems — Postgres+PostGIS has no official Windows
-installer bundle, and Redis has no official Windows build at all.
+**If you don't want to manage a local database at all, use Supabase** — see the very next
+section. Otherwise, Docker Compose is the next-easiest and sidesteps two genuinely annoying
+Windows problems: Postgres+PostGIS has no official Windows installer bundle, and Redis has no
+official Windows build at all.
+
+---
+
+## Option 0 — Supabase Postgres (managed, no local Postgres needed)
+
+Supabase gives you a hosted Postgres with PostGIS available as a one-click extension — you still
+need Redis locally (Supabase doesn't provide that), but the database itself needs no local
+install at all. This is the fastest way to get running, and works identically on macOS/Windows
+since it's just a connection string.
+
+### 1. Create the project and enable PostGIS
+
+1. Create a project at [supabase.com](https://supabase.com) (or use an existing one).
+2. In the dashboard: **Database → Extensions**, search `postgis`, and enable it. (Equivalent SQL,
+   run in the **SQL Editor** if you prefer: `create extension if not exists postgis;`)
+
+### 2. Get your connection string — pick the right one
+
+Go to **Project Settings → Database → Connection string**. Supabase offers three modes; **use
+the Session pooler** unless you have a specific reason not to:
+
+| Mode | Port | Use for Mendyr? |
+|---|---|---|
+| Direct connection | 5432 | Works, but is **IPv6-only** unless you've paid for Supabase's IPv4 add-on — many home/office networks and some CI runners can't reach it. |
+| **Session pooler** (recommended) | 5432 (pooler host) | ✅ IPv4-compatible, keeps a dedicated backend connection per client (so prepared statements work normally) — no extra config needed beyond the connection details. |
+| Transaction pooler | 6543 | Also IPv4-compatible, but PgBouncer hands each query to a different backend connection, which breaks asyncpg's prepared-statement cache. Only use this if you specifically need its higher connection-multiplexing (e.g. serverless functions each opening their own connection) — see the flag below. |
+
+### 3. Configure `.env`
+
+Copy the host/port/user/password from the connection string Supabase shows you into the
+existing `POSTGRES_*` variables — don't paste the whole URI, the app builds it from these parts:
+
+```
+POSTGRES_HOST=aws-0-<region>.pooler.supabase.com   # from your Session pooler connection string
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres.<your-project-ref>           # pooler usernames include the project ref
+POSTGRES_PASSWORD=<your DB password>
+POSTGRES_DB=postgres
+POSTGRES_SSL_REQUIRED=true
+DB_DISABLE_PREPARED_STATEMENT_CACHE=false
+```
+
+If you use the **Transaction pooler** (port 6543) instead, set:
+
+```
+POSTGRES_PORT=6543
+DB_DISABLE_PREPARED_STATEMENT_CACHE=true
+```
+
+`POSTGRES_SSL_REQUIRED=true` makes both the app's asyncpg connection and Alembic's psycopg
+connection negotiate TLS — Supabase rejects plaintext connections, so this must be `true`.
+
+### 4. Run migrations and seed, same as any other Postgres
+
+```bash
+make migrate     # uv run alembic upgrade head
+make seed        # uv run python -m scripts.seed
+```
+
+Redis is still needed locally for OTP/rate-limiting/Celery — install it via Homebrew (macOS) or
+run it under WSL2/Docker (Windows), as shown in the options below, or point `REDIS_URL` at a
+managed Redis (Upstash, etc.) if you'd rather not run that locally either.
+
+Then continue from **step 8 ("Run the app")** in the Common steps section below.
 
 ---
 
@@ -63,7 +129,7 @@ reference data from your host machine (needs the Python venv from step 5 of Opti
 inside the container):
 
 ```bash
-docker compose exec api python -m scripts.seed
+docker compose exec api uv run python -m scripts.seed
 ```
 
 Check it's alive: `curl http://localhost:8000/api/v1/healthz`. Docs at
@@ -226,17 +292,25 @@ marketplace rules, provider keys, etc.).
 
 **5. Python environment**
 
+Dependencies are pinned in `uv.lock` — everyone who runs `uv sync` gets the exact same package
+versions, not just whatever `>=` floor `pip` happens to resolve that day. Install
+[uv](https://docs.astral.sh/uv/getting-started/installation/) once, then:
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate      # Windows native (not WSL2), PowerShell: .venv\Scripts\Activate.ps1
-pip install --upgrade pip
-pip install -e ".[dev]"
+uv sync --extra dev      # creates .venv and installs the exact locked versions
 ```
+
+Prefer plain `pip`? It still works (`pip install -e ".[dev]"`), but won't guarantee identical
+versions across teammates' machines — use `uv sync` if reproducibility matters, e.g. onboarding
+someone new or debugging a "works on my machine" issue.
+
+From here on, run project commands with `uv run <command>` (e.g. `uv run alembic upgrade head`)
+instead of activating a venv manually — every `make` target already does this for you.
 
 **6. Run migrations**
 
 ```bash
-alembic upgrade head
+make migrate      # uv run alembic upgrade head
 ```
 
 This creates all 30 tables. Confirm with `psql -h 127.0.0.1 -p <port> -U mendyr -d mendyr -c "\dt"`.
@@ -244,7 +318,7 @@ This creates all 30 tables. Confirm with `psql -h 127.0.0.1 -p <port> -U mendyr 
 **7. Seed reference data**
 
 ```bash
-python -m scripts.seed
+make seed        # uv run python -m scripts.seed
 ```
 
 Idempotent — populates service categories (Nursing Care, Physiotherapy, Elder Care, ...),
@@ -307,7 +381,7 @@ either use `curl.exe` explicitly to get the real curl binary, or run these from 
 | `alembic upgrade head` fails with `relation "..." does not exist` mid-way | Your target DB doesn't have the `postgis` extension enabled yet — run the `CREATE EXTENSION` step above first. |
 | `docker info` errors / `docker compose up` hangs | Docker Desktop isn't running — start it, wait for it to report healthy, then retry. On Windows, confirm WSL2 integration is enabled in Docker Desktop's settings. |
 | `make` not found (Windows) | You're in native PowerShell/cmd, not WSL2 — either run commands from a WSL2 Ubuntu terminal, or use the raw `uvicorn`/`celery`/`docker compose` commands shown inline above. |
-| Tests wipe your dev data | `tests/conftest.py` runs `Base.metadata.create_all`/`drop_all` against whatever DB your `.env` points at. Point `POSTGRES_*` at a **separate** disposable test database before running `make test`, or re-run `alembic upgrade head && python -m scripts.seed` afterward to restore your dev DB. |
+| Tests wipe your dev data | `tests/conftest.py` runs `Base.metadata.create_all`/`drop_all` against whatever DB your `.env` points at. Point `POSTGRES_*` at a **separate** disposable test database before running `make test`, or re-run `make migrate && make seed` afterward to restore your dev DB. |
 | Redis connection errors | macOS: `brew services list | grep redis`, start with `brew services start redis`. WSL2: `sudo service redis-server status`, start with `sudo service redis-server start`. |
 
 See `ARCHITECTURE.md` for the folder structure, domain model, and what each service does.
