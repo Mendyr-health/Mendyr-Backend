@@ -68,9 +68,17 @@ make migrate     # uv run alembic upgrade head
 make seed        # uv run python -m scripts.seed
 ```
 
-Redis is still needed locally for OTP/rate-limiting/Celery — install it via Homebrew (macOS) or
-run it under WSL2/Docker (Windows), as shown in the options below, or point `REDIS_URL` at a
-managed Redis (Upstash, etc.) if you'd rather not run that locally either.
+Redis is used for OTP resend-cooldown and rate limiting — install it via Homebrew (macOS) or run
+it under WSL2/Docker (Windows), as shown in the options below, point `REDIS_URL` at a managed
+Redis (Upstash, etc.), **or just skip it entirely**: set `REDIS_ENABLED=false` in `.env` and the
+app runs with no Redis at all (rate limiting falls back to an in-process store, OTP resend
+cooldown is skipped). This is the simplest choice on native Windows, where Redis has no official
+build.
+
+**Joining an existing project?** If you're adding a teammate to a project that already has a
+Supabase database set up, skip steps 1–2 and step 4 (schema + reference data already exist) —
+just get the Session pooler host/user/password from whoever set it up (or the team's shared
+`.env`) and go straight to step 3, then the "Run the app" step below.
 
 Then continue from **step 8 ("Run the app")** in the Common steps section below.
 
@@ -294,7 +302,17 @@ marketplace rules, provider keys, etc.).
 
 Dependencies are pinned in `uv.lock` — everyone who runs `uv sync` gets the exact same package
 versions, not just whatever `>=` floor `pip` happens to resolve that day. Install
-[uv](https://docs.astral.sh/uv/getting-started/installation/) once, then:
+[uv](https://docs.astral.sh/uv/getting-started/installation/) once:
+
+```bash
+# macOS/Linux/WSL2:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Native Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+then:
 
 ```bash
 uv sync --extra dev      # creates .venv and installs the exact locked versions
