@@ -1,0 +1,41 @@
+name: Run database migrations
+
+# Runs Alembic migrations against the production Supabase database on every push to main
+# that touches a migration file, plus manual dispatch for one-off runs. Deliberately does NOT
+# run on every push (e.g. doc changes) — only when the schema itself might have changed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "alembic/**"
+      - "app/models/**"
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run alembic upgrade head
+        env:
+          # Settings() validates every field eagerly on import (including SECRET_KEY, which
+          # migrations never actually use) — so it must be set here even though this workflow
+          # only touches the database. Reusing the same repo secret as the app's real
+          # SECRET_KEY is fine (or any throwaway value works equally well).
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_SSL_REQUIRED: "true"
+        run: uv run alembic upgrade head
