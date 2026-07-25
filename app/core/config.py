@@ -72,6 +72,11 @@ class Settings(BaseSettings):
         return f"{base}?sslmode=require" if self.POSTGRES_SSL_REQUIRED else base
 
     # ── Redis / Celery ───────────────────────────────────────────────────
+    # Set false to run without a Redis instance at all: rate limiting falls back to an
+    # in-process (single-worker-process-only) store, and OTP resend cooldown is skipped
+    # entirely. Fine for early local/dev use; Celery worker/beat still need real Redis to run
+    # (background jobs just won't be sent anywhere if you're not running those processes).
+    REDIS_ENABLED: bool = True
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"

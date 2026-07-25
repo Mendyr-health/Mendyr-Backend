@@ -25,14 +25,16 @@ def _hash_code(phone_number: str, code: str) -> str:
 class OTPService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
-        self.redis = get_redis()
+        # Without Redis there's no resend-cooldown enforcement — acceptable degradation for
+        # early/local use; re-enable REDIS_ENABLED once a real Redis instance is wired up.
+        self.redis = get_redis() if settings.REDIS_ENABLED else None
         self.sms = get_sms_provider()
 
     def _cooldown_key(self, phone_number: str, purpose: str) -> str:
         return f"otp:cooldown:{purpose}:{phone_number}"
 
     async def request_otp(self, phone_number: str, purpose: str) -> None:
-        if await self.redis.get(self._cooldown_key(phone_number, purpose)):
+        if self.redis and await self.redis.get(self._cooldown_key(phone_number, purpose)):
             raise RateLimitedError("Please wait before requesting another OTP.")
 
         code = f"{secrets.randbelow(10**settings.OTP_LENGTH):0{settings.OTP_LENGTH}d}"
@@ -49,9 +51,12 @@ class OTPService:
         self.session.add(otp_row)
         await self.session.flush()
 
-        await self.redis.set(
-            self._cooldown_key(phone_number, purpose), "1", ex=settings.OTP_RESEND_COOLDOWN_SECONDS
-        )
+        if self.redis:
+            await self.redis.set(
+                self._cooldown_key(phone_number, purpose),
+                "1",
+                ex=settings.OTP_RESEND_COOLDOWN_SECONDS,
+            )
         await self.sms.send_otp(phone_number, code)
 
     async def verify_otp(self, phone_number: str, purpose: str, code: str) -> None:
