@@ -1,14 +1,16 @@
 """Professional onboarding, KYC document review, availability status/location, service opt-in."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import VerificationStatus
+from app.core.constants import BookingStatus, VerificationStatus
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
+from app.models.booking import Booking
+from app.models.payment import Payout
 from app.models.professional import (
     ProfessionalAvailabilitySlot,
     ProfessionalDocument,
@@ -16,7 +18,10 @@ from app.models.professional import (
     ProfessionalSpecialization,
 )
 from app.models.service import ProfessionalService as ProfessionalServiceOptIn
+from app.models.user import User
+from app.repositories.booking_repo import BookingRepository
 from app.repositories.professional_repo import ProfessionalRepository
+from app.schemas.appointment import EarningTransactionPublic, NurseEarningsSummary
 from app.schemas.professional import (
     AvailabilitySlotIn,
     AvailabilityStatusUpdateIn,
@@ -30,6 +35,7 @@ class ProfessionalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.professionals = ProfessionalRepository(session)
+        self.bookings = BookingRepository(session)
 
     async def onboard(
         self, user_id: uuid.UUID, payload: ProfessionalOnboardIn
@@ -147,3 +153,70 @@ class ProfessionalService:
 
         await self.session.flush()
         return profile
+
+    # ── Earnings (GET /professionals/me/earnings) ────────────────────────────
+
+    async def get_earnings_summary(self, professional_id: uuid.UUID) -> NurseEarningsSummary:
+        now = datetime.now(UTC)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=today_start.weekday())
+        month_start = today_start.replace(day=1)
+
+        month_bookings = await self.bookings.list_completed_for_professional_between(
+            professional_id, start=month_start, end=now + timedelta(days=1)
+        )
+        today_earnings = sum(
+            float(b.professional_payout_amount)
+            for b in month_bookings
+            if b.scheduled_start_at >= today_start
+        )
+        week_earnings = sum(
+            float(b.professional_payout_amount)
+            for b in month_bookings
+            if b.scheduled_start_at >= week_start
+        )
+        month_earnings = sum(float(b.professional_payout_amount) for b in month_bookings)
+
+        total_row = await self.session.execute(
+            select(func.coalesce(func.sum(Booking.professional_payout_amount), 0)).where(
+                Booking.professional_id == professional_id,
+                Booking.status == BookingStatus.COMPLETED,
+            )
+        )
+        total_earnings = float(total_row.scalar_one())
+
+        paid_out_row = await self.session.execute(
+            select(func.coalesce(func.sum(Payout.net_amount), 0)).where(
+                Payout.professional_id == professional_id
+            )
+        )
+        already_paid_out = float(paid_out_row.scalar_one())
+
+        recent = sorted(month_bookings, key=lambda b: b.scheduled_start_at, reverse=True)[:20]
+        patient_ids = {b.patient_id for b in recent}
+        patients = {}
+        if patient_ids:
+            rows = await self.session.execute(select(User).where(User.id.in_(patient_ids)))
+            patients = {u.id: u.full_name for u in rows.scalars().all()}
+
+        return NurseEarningsSummary(
+            today_earnings=today_earnings,
+            week_earnings=week_earnings,
+            month_earnings=month_earnings,
+            total_earnings=total_earnings,
+            pending_payout=max(total_earnings - already_paid_out, 0),
+            completed_visits_count=len(month_bookings),
+            transactions=[
+                EarningTransactionPublic(
+                    id=str(b.id),
+                    appointment_id=str(b.id),
+                    patient_name=patients.get(b.patient_id, "Unknown"),
+                    service_name=b.service_name_snapshot,
+                    date=b.scheduled_start_at.date().isoformat(),
+                    amount=float(b.professional_payout_amount),
+                    status="paid" if already_paid_out >= total_earnings else "processing",
+                    payment_method=None,
+                )
+                for b in recent
+            ],
+        )

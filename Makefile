@@ -1,4 +1,4 @@
-.PHONY: install dev run worker beat migrate revision seed lint format test up down logs lock
+.PHONY: install dev run worker beat migrate migrate-status seed lint format test up down logs lock
 
 # Every target runs through `uv run`, which uses the exact versions pinned in uv.lock —
 # no manual venv activation needed, and every teammate gets identical dependency versions.
@@ -22,10 +22,10 @@ beat:
 	uv run celery -A app.workers.celery_app beat --loglevel=info
 
 migrate:
-	uv run alembic upgrade head
+	uv run python scripts/run_migrations.py
 
-revision:
-	uv run alembic revision --autogenerate -m "$(m)"
+migrate-status:
+	uv run python scripts/run_migrations.py --status
 
 seed:
 	uv run python -m scripts.seed

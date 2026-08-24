@@ -17,7 +17,7 @@ checks) as part of building this scaffold. It is a real, running skeleton — no
 | Concern              | Choice                                                              |
 |-----------------------|----------------------------------------------------------------------|
 | API framework         | FastAPI (async)                                                     |
-| Database              | PostgreSQL + PostGIS (geospatial matching), SQLAlchemy 2.0 (async ORM), Alembic (migrations) |
+| Database              | PostgreSQL + PostGIS (geospatial matching), SQLAlchemy 2.0 (async ORM), plain SQL migration files (migrations/*.sql, applied by scripts/run_migrations.py) |
 | Cache / queues        | Redis (OTP, rate limiting, dispatch locks), Celery (background jobs, scheduled tasks) |
 | Auth                  | Phone OTP (primary) + JWT access/refresh tokens                     |
 | Payments              | Razorpay (order + webhook + refund)                                 |
@@ -95,9 +95,11 @@ Mendly-Backend/
 │       ├── celery_app.py        #   App + beat schedule
 │       └── tasks/                #   matching (offer-expiry sweep), payouts, reminders, notifications
 │
-├── alembic/                     # DB migrations (hand-verified against a real Postgres+PostGIS)
-│   ├── env.py
-│   └── versions/0001_..._initial_schema.py
+├── migrations/                   # DB migrations — numbered, hand-written .sql files applied
+│   ├── 001_extensions.sql        #   in filename order by scripts/run_migrations.py
+│   ├── 002_initial_schema.sql
+│   ├── ...
+│   └── README.md                 #   convention + how to add a new migration
 │
 ├── scripts/seed.py               # Idempotent reference-data seeding (categories, services, specializations)
 ├── tests/                        # pytest suite (unit + integration), see §7
@@ -281,7 +283,7 @@ make install                         # uv sync --extra dev — installs the exac
 make up
 
 # Option B — bare-metal (requires local Postgres+PostGIS and Redis):
-make migrate                         # uv run alembic upgrade head
+make migrate                         # uv run python scripts/run_migrations.py
 make seed                            # reference data: categories, services, specializations
 make dev                             # uvicorn --reload on :8000
 make worker                          # in another shell — Celery worker
@@ -294,16 +296,22 @@ Health/readiness probes: `GET /api/v1/healthz`, `GET /api/v1/readyz`.
 ### Migrations
 
 ```bash
-make revision m="add professional bank verification flag"   # alembic revision --autogenerate
-make migrate                                                  # alembic upgrade head
+make migrate                         # runs every pending migrations/*.sql file, in order
+make migrate-status                  # shows which migrations are applied vs pending
 ```
 
-`alembic/env.py` reads the DB URL from `Settings.SQLALCHEMY_SYNC_DATABASE_URI` (psycopg, sync)
-— the same `.env` that configures the app's async engine (asyncpg) — so there is exactly one
-place connection settings live. The initial migration
-(`alembic/versions/..._initial_schema.py`) was generated and applied against a real local
-Postgres 17 + PostGIS 3.6 instance, then round-tripped (upgrade → downgrade → upgrade) to
-confirm it's correct, not just plausible-looking.
+There's no `make revision`/autogenerate step anymore — migrations are hand-authored `.sql`
+files (`migrations/NNN_description.sql`), not generated from the ORM models, so write the SQL
+by hand and update the matching `app/models/*.py` in the same PR; see `migrations/README.md`
+for the full convention. `scripts/run_migrations.py` connects directly via `psycopg` using the
+same `POSTGRES_*` settings from `.env` that configure the app's async engine (asyncpg) — so
+there is exactly one place connection settings live, and applying migrations has no dependency
+on the app's Python import graph. The baseline schema (`migrations/002_initial_schema.sql`) was
+generated once via `alembic upgrade base:head --sql` (Alembic's offline mode, which emits the
+DDL without needing a live DB) at the time this project moved off Alembic, then committed as
+plain SQL and applied/verified against a real local Postgres 17 + PostGIS 3.6 instance — from
+that point on it's maintained as hand-written SQL like every migration after it, not
+regenerated.
 
 ### Tests
 

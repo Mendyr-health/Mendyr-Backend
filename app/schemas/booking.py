@@ -1,14 +1,15 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from app.core.constants import BookingStatus, BookingType
-from app.schemas.common import ORMModel
+from app.schemas.appointment import CareNoteIn
+from app.schemas.common import CamelModel, CamelORMModel
 from app.schemas.professional import ProfessionalPublicRead
 
 
-class BookingCreateIn(BaseModel):
+class BookingCreateIn(CamelModel):
     service_id: uuid.UUID
     address_id: uuid.UUID
     scheduled_start_at: datetime
@@ -21,7 +22,7 @@ class BookingCreateIn(BaseModel):
     preferred_professional_id: uuid.UUID | None = None
 
 
-class BookingQuoteIn(BaseModel):
+class BookingQuoteIn(CamelModel):
     """Price preview shown before the patient confirms — no rows written yet."""
 
     service_id: uuid.UUID
@@ -29,7 +30,7 @@ class BookingQuoteIn(BaseModel):
     coupon_code: str | None = None
 
 
-class BookingQuoteOut(BaseModel):
+class BookingQuoteOut(CamelModel):
     base_price: float
     discount_amount: float
     platform_fee: float
@@ -37,11 +38,11 @@ class BookingQuoteOut(BaseModel):
     total_amount: float
 
 
-class BookingCancelIn(BaseModel):
+class BookingCancelIn(CamelModel):
     reason: str
 
 
-class BookingRead(ORMModel):
+class BookingRead(CamelORMModel):
     id: uuid.UUID
     booking_code: str
     status: BookingStatus
@@ -59,7 +60,7 @@ class BookingRead(ORMModel):
     created_at: datetime
 
 
-class BookingListItem(ORMModel):
+class BookingListItem(CamelORMModel):
     id: uuid.UUID
     booking_code: str
     status: BookingStatus
@@ -68,11 +69,13 @@ class BookingListItem(ORMModel):
     total_amount: float
 
 
-class OfferRespondIn(BaseModel):
+class OfferRespondIn(CamelModel):
     accept: bool
+    # Required in practice when accept=False; audit-logged, not stored on a column.
+    reason: str | None = None
 
 
-class OfferRead(ORMModel):
+class OfferRead(CamelORMModel):
     id: uuid.UUID
     booking_id: uuid.UUID
     round_number: int
@@ -81,14 +84,13 @@ class OfferRead(ORMModel):
     expires_at: datetime
 
 
-class VisitCheckInIn(BaseModel):
+class VisitCheckInIn(CamelModel):
     latitude: float
     longitude: float
 
 
-class VisitCheckOutIn(BaseModel):
+class VisitCheckOutIn(CamelModel):
     latitude: float
     longitude: float
-    visit_summary_notes: str | None = None
-    vitals_recorded: str | None = None
+    care_note: CareNoteIn | None = None
     proof_of_visit_photo_url: str | None = None

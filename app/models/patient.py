@@ -17,12 +17,20 @@ class PatientProfile(Base, UUIDPKMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
 
+    # Free-text address captured at registration — NOT the geocoded Address model (used for
+    # booking/dispatch, which needs a precise lat/lng + pincode the registration form doesn't
+    # collect). A patient adds a proper geocoded Address separately when booking a visit.
+    address_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Care context — surfaced to the assigned professional before the visit.
     known_conditions: Mapped[list[str] | None] = mapped_column(ARRAY(String(100)), nullable=True)
     allergies: Mapped[list[str] | None] = mapped_column(ARRAY(String(100)), nullable=True)
     current_medications: Mapped[str | None] = mapped_column(Text, nullable=True)
     emergency_contact_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     emergency_contact_phone: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    emergency_contact_relationship: Mapped[str | None] = mapped_column(String(100), nullable=True)
     preferred_language: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -58,13 +58,14 @@ POSTGRES_PORT=6543
 DB_DISABLE_PREPARED_STATEMENT_CACHE=true
 ```
 
-`POSTGRES_SSL_REQUIRED=true` makes both the app's asyncpg connection and Alembic's psycopg
-connection negotiate TLS — Supabase rejects plaintext connections, so this must be `true`.
+`POSTGRES_SSL_REQUIRED=true` makes both the app's asyncpg connection and the migration
+runner's psycopg connection negotiate TLS — Supabase rejects plaintext connections, so this
+must be `true`.
 
 ### 4. Run migrations and seed, same as any other Postgres
 
 ```bash
-make migrate     # uv run alembic upgrade head
+make migrate     # uv run python scripts/run_migrations.py
 make seed        # uv run python -m scripts.seed
 ```
 
@@ -132,7 +133,8 @@ side you're comfortable with.)
 ### Both platforms, once containers are up
 
 This starts `postgres` (PostGIS baked in), `redis`, `api`, `worker`, and `beat` together. The
-`api` container runs `alembic upgrade head` automatically before serving traffic. Then seed
+`api` container runs `make migrate` (`scripts/run_migrations.py`) automatically before serving
+traffic. Then seed
 reference data from your host machine (needs the Python venv from step 5 of Option B, or run it
 inside the container):
 
@@ -322,13 +324,14 @@ Prefer plain `pip`? It still works (`pip install -e ".[dev]"`), but won't guaran
 versions across teammates' machines — use `uv sync` if reproducibility matters, e.g. onboarding
 someone new or debugging a "works on my machine" issue.
 
-From here on, run project commands with `uv run <command>` (e.g. `uv run alembic upgrade head`)
-instead of activating a venv manually — every `make` target already does this for you.
+From here on, run project commands with `uv run <command>` (e.g. `uv run python
+scripts/run_migrations.py`) instead of activating a venv manually — every `make` target
+already does this for you.
 
 **6. Run migrations**
 
 ```bash
-make migrate      # uv run alembic upgrade head
+make migrate      # uv run python scripts/run_migrations.py
 ```
 
 This creates all 30 tables. Confirm with `psql -h 127.0.0.1 -p <port> -U mendyr -d mendyr -c "\dt"`.
@@ -396,7 +399,7 @@ either use `curl.exe` explicitly to get the real curl binary, or run these from 
 | `initdb`/`pg_ctl` fails with "postmaster became multithreaded during startup" (macOS) | Set `export LANG=C LC_ALL=C` before running Postgres commands (macOS-specific Homebrew/Postgres 17 issue). |
 | `createdb`/`psql` connection refused | Confirm the right port — `pg_isready -h 127.0.0.1 -p <port>`. If you have another Postgres already running, don't mix them up. |
 | `CREATE EXTENSION postgis` fails: "could not open extension control file" | PostGIS isn't installed for this Postgres version. macOS: `brew install postgis` must match the running `postgresql@*` formula version. WSL2/Ubuntu: install the version-suffixed package, e.g. `postgresql-16-postgis-3`. |
-| `alembic upgrade head` fails with `relation "..." does not exist` mid-way | Your target DB doesn't have the `postgis` extension enabled yet — run the `CREATE EXTENSION` step above first. |
+| `make migrate` fails with `relation "..." does not exist` mid-way | `make migrate` applies `migrations/001_extensions.sql` first, which runs `CREATE EXTENSION IF NOT EXISTS postgis` for you — no manual `CREATE EXTENSION` step needed. If it still fails here, the connecting Postgres user lacks `CREATE EXTENSION` rights (common on some managed/shared hosts); grant that privilege (or ask whoever administers the DB to run migration 001's `CREATE EXTENSION` statements once as a superuser), then re-run `make migrate`. |
 | `docker info` errors / `docker compose up` hangs | Docker Desktop isn't running — start it, wait for it to report healthy, then retry. On Windows, confirm WSL2 integration is enabled in Docker Desktop's settings. |
 | `make` not found (Windows) | You're in native PowerShell/cmd, not WSL2 — either run commands from a WSL2 Ubuntu terminal, or use the raw `uvicorn`/`celery`/`docker compose` commands shown inline above. |
 | Tests wipe your dev data | `tests/conftest.py` runs `Base.metadata.create_all`/`drop_all` against whatever DB your `.env` points at. Point `POSTGRES_*` at a **separate** disposable test database before running `make test`, or re-run `make migrate && make seed` afterward to restore your dev DB. |

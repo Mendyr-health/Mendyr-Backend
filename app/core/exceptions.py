@@ -71,7 +71,14 @@ class PaymentError(AppError):
 
 
 def _error_body(code: str, message: str) -> dict:
-    return {"error": {"code": code, "message": message}}
+    # Matches app.schemas.common.ApiResponse's shape exactly (not constructed via the
+    # Pydantic model here to keep exception handlers dependency-free of the schema layer).
+    return {
+        "success": False,
+        "data": None,
+        "meta": None,
+        "error": {"code": code, "message": message},
+    }
 
 
 def register_exception_handlers(app: FastAPI) -> None:

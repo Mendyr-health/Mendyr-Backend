@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.api import api_router
+from app.api.web.auth import router as auth_web_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
@@ -62,6 +63,8 @@ def create_app() -> FastAPI:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+    # Mounted at /api (not /api/v1) — the frontend calls /api/auth/*, not /api/v1/auth/*.
+    app.include_router(auth_web_router, prefix="/api")
 
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 

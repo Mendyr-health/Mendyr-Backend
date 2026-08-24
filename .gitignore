@@ -20,3 +20,6 @@ build/
 .idea/
 .vscode/
 uploads/
+
+# Local-only port override (this machine has another Postgres on 5432)
+docker-compose.override.yml

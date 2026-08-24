@@ -2,6 +2,7 @@
 showed up at the patient's address, used to unlock payout and prompt the review flow.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -89,8 +90,12 @@ class VisitService:
         visit.checked_out_location = WKTElement(
             f"POINT({payload.longitude} {payload.latitude})", srid=4326
         )
-        visit.visit_summary_notes = payload.visit_summary_notes
-        visit.vitals_recorded = payload.vitals_recorded
+        if payload.care_note is not None:
+            visit.visit_summary_notes = payload.care_note.notes
+            if payload.care_note.vitals is not None:
+                visit.vitals_recorded = json.dumps(
+                    payload.care_note.vitals.model_dump(exclude_none=True)
+                )
         visit.proof_of_visit_photo_url = payload.proof_of_visit_photo_url
 
         await self.booking_service.transition_status(booking, BookingStatus.COMPLETED)

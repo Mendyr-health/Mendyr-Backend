@@ -29,7 +29,6 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.35",
     "asyncpg>=0.30.0",
     "psycopg[binary]>=3.2.0",
-    "alembic>=1.14.0",
     "geoalchemy2>=0.15.2",
     "shapely>=2.0.6",
     # cache / queue
@@ -68,7 +67,6 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "ASYNC", "S", "T20"]
@@ -80,6 +78,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "N806"]
+# One-off CLI scripts (seed data, migration runner) — print() is the actual UI, not debug noise.
+"scripts/*" = ["T201"]
 # SQLAlchemy 2.0 relationships reference sibling models by quoted forward-ref string
 # (`Mapped["User"]`) resolved lazily by the mapper registry, not by module-level name
 # lookup — ruff's F821 doesn't know that pattern and flags every one as undefined.
@@ -94,7 +94,7 @@ plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 disallow_untyped_defs = true
 ignore_missing_imports = true
-exclude = ["alembic/", "tests/"]
+exclude = ["tests/"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -108,4 +108,4 @@ addopts = "-q --strict-markers"
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["app/workers/*", "alembic/*"]
+omit = ["app/workers/*"]

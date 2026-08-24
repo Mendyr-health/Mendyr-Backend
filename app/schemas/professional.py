@@ -9,7 +9,7 @@ from app.core.constants import (
     ProfessionalType,
     VerificationStatus,
 )
-from app.schemas.common import GeoPoint, ORMModel
+from app.schemas.common import CamelModel, CamelORMModel, GeoPoint
 
 
 class ProfessionalOnboardIn(BaseModel):
@@ -23,12 +23,12 @@ class ProfessionalOnboardIn(BaseModel):
     service_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
-class ProfessionalDocumentUploadIn(BaseModel):
+class ProfessionalDocumentUploadIn(CamelModel):
     document_type: DocumentType
     file_url: str
 
 
-class ProfessionalDocumentRead(ORMModel):
+class ProfessionalDocumentRead(CamelORMModel):
     id: uuid.UUID
     document_type: DocumentType
     file_url: str
@@ -43,18 +43,19 @@ class ProfessionalReviewDecisionIn(BaseModel):
     rejection_reason: str | None = None
 
 
-class AvailabilitySlotIn(BaseModel):
+class AvailabilitySlotIn(CamelModel):
     day_of_week: int = Field(..., ge=0, le=6)
     start_time: time
     end_time: time
+    is_active: bool = True
 
 
-class AvailabilityStatusUpdateIn(BaseModel):
+class AvailabilityStatusUpdateIn(CamelModel):
     availability_status: AvailabilityStatus
     location: GeoPoint | None = None
 
 
-class ProfessionalRead(ORMModel):
+class ProfessionalRead(CamelORMModel):
     id: uuid.UUID
     professional_type: ProfessionalType
     years_of_experience: int
@@ -68,7 +69,7 @@ class ProfessionalRead(ORMModel):
     created_at: datetime
 
 
-class ProfessionalPublicRead(BaseModel):
+class ProfessionalPublicRead(CamelModel):
     """What the patient app shows about the assigned professional — no banking/KYC internals."""
 
     id: uuid.UUID

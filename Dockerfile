@@ -26,8 +26,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
-COPY alembic.ini ./
-COPY alembic ./alembic
+COPY migrations ./migrations
+COPY scripts ./scripts
 RUN uv sync --frozen --no-dev
 
 RUN addgroup --system mendyr && adduser --system --ingroup mendyr mendyr

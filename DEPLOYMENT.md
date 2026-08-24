@@ -24,9 +24,10 @@ separate long-lived worker process. That matters a lot for Mendyr specifically:
 - It builds from `pyproject.toml`/`uv.lock` in the target directory — **not** from our
   `Dockerfile`. The Dockerfile stays relevant for the Docker Compose path and for wherever you
   run the Celery worker/beat, just not for the FastAPI Cloud deploy itself.
-- Migrations are **not** run automatically. Run `alembic upgrade head` against the production
-  database yourself (from your machine, since Supabase is reachable the same way it is for local
-  dev) before/after each deploy that changes the schema.
+- Migrations are **not** run automatically. Run `make migrate` (or the direct
+  `uv run python scripts/run_migrations.py` form) against the production database yourself (from
+  your machine, since Supabase is reachable the same way it is for local dev) before/after each
+  deploy that changes the schema.
 
 ## 1. Install the CLI and log in
 
@@ -89,12 +90,13 @@ POSTGRES_USER="postgres.<your-project-ref>" \
 POSTGRES_PASSWORD="<your DB password>" \
 POSTGRES_DB=postgres \
 POSTGRES_SSL_REQUIRED=true \
-uv run alembic upgrade head
+uv run python scripts/run_migrations.py
 ```
 
 (Or duplicate `.env` as `.env.production` locally with these values and load it — either way,
 this runs from your machine against the same Supabase instance the deployed app will use, since
-`alembic/env.py` reads `Settings.SQLALCHEMY_SYNC_DATABASE_URI` the same way locally or in CI.)
+`scripts/run_migrations.py` connects directly via `psycopg` using the same `POSTGRES_*` settings
+locally or in CI — no ORM or app import graph involved.)
 
 ## 4. Deploy
 

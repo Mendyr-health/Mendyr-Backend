@@ -1,13 +1,14 @@
 name: Run database migrations
 
-# Runs Alembic migrations against the production Supabase database on every push to main
-# that touches a migration file, plus manual dispatch for one-off runs. Deliberately does NOT
-# run on every push (e.g. doc changes) — only when the schema itself might have changed.
+# Applies pending migrations/*.sql files against the production Supabase database on every
+# push to main that touches a migration file, plus manual dispatch for one-off runs.
+# Deliberately does NOT run on every push (e.g. doc changes) — only when the schema itself
+# might have changed.
 on:
   push:
     branches: [main]
     paths:
-      - "alembic/**"
+      - "migrations/**"
       - "app/models/**"
   workflow_dispatch: {}
 
@@ -25,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      - name: Run alembic upgrade head
+      - name: Run pending migrations
         env:
           # Settings() validates every field eagerly on import (including SECRET_KEY, which
           # migrations never actually use) — so it must be set here even though this workflow
@@ -38,4 +39,4 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_SSL_REQUIRED: "true"
-        run: uv run alembic upgrade head
+        run: uv run python scripts/run_migrations.py

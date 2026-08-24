@@ -23,5 +23,6 @@ def require_roles(*allowed: UserRole) -> Callable:
 
 require_patient = require_roles(UserRole.PATIENT)
 require_professional = require_roles(UserRole.PROFESSIONAL)
-require_admin = require_roles(UserRole.ADMIN)
-require_ops_or_admin = require_roles(UserRole.OPS, UserRole.ADMIN)
+require_admin = require_roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+require_super_admin = require_roles(UserRole.SUPER_ADMIN)
+require_ops_or_admin = require_roles(UserRole.OPS, UserRole.ADMIN, UserRole.SUPER_ADMIN)

@@ -9,8 +9,9 @@ from enum import StrEnum
 
 class UserRole(StrEnum):
     PATIENT = "patient"
-    PROFESSIONAL = "professional"
+    PROFESSIONAL = "professional"  # nurse-facing role in the current product scope
     ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"  # platform governance: manage admins, roles, audit logs
     OPS = "ops"  # internal support / dispatch staff
 
 
@@ -165,3 +166,15 @@ class DevicePlatform(StrEnum):
     ANDROID = "android"
     IOS = "ios"
     WEB = "web"
+
+
+class PreferredContactMethod(StrEnum):
+    EMAIL = "email"
+    PHONE = "phone"
+    WHATSAPP = "whatsapp"
+
+
+class ContactInquiryStatus(StrEnum):
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"

@@ -111,13 +111,14 @@ automatically.
 ## 5. Run migrations + seed (skip if joining an existing project)
 
 ```powershell
-uv run alembic upgrade head
+uv run python scripts/run_migrations.py
 uv run python -m scripts.seed
 ```
 
 The first creates all 30 tables; the second populates service categories/services/
-specializations. Both are safe to re-run — `alembic upgrade head` is a no-op if already current,
-and the seed script is idempotent.
+specializations. Both are safe to re-run — `scripts/run_migrations.py` tracks applied
+filenames in a `schema_migrations` table, so re-running it after everything is applied just
+no-ops, and the seed script is idempotent.
 
 ---
 

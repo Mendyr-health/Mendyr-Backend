@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.core.constants import Gender, UserRole, UserStatus
-from app.schemas.common import ORMModel
+from app.schemas.common import CamelModel, ORMModel
 
 
 class UserRead(ORMModel):
@@ -29,7 +29,7 @@ class UserUpdateIn(BaseModel):
     avatar_url: str | None = None
 
 
-class DeviceTokenIn(BaseModel):
+class DeviceTokenIn(CamelModel):
     platform: str
     push_token: str
     app_version: str | None = None

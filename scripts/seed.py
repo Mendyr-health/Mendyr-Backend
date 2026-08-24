@@ -1,6 +1,6 @@
 """Seed reference data: service categories, services and specializations.
 
-Run with: `python -m scripts.seed` (after `alembic upgrade head`).
+Run with: `python -m scripts.seed` (after `make migrate`).
 Idempotent — safe to re-run; existing rows (matched by slug/name) are left untouched.
 """
 import asyncio
@@ -87,7 +87,9 @@ async def seed() -> None:
         category_ids: dict[str, object] = {}
         for cat in CATEGORIES:
             existing = (
-                await session.execute(select(ServiceCategory).where(ServiceCategory.slug == cat["slug"]))
+                await session.execute(
+                    select(ServiceCategory).where(ServiceCategory.slug == cat["slug"])
+                )
             ).scalar_one_or_none()
             if existing is None:
                 existing = ServiceCategory(**cat)

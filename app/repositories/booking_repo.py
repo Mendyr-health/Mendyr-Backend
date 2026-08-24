@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.core.constants import OfferStatus
+from app.core.constants import BookingStatus, OfferStatus
 from app.models.booking import Booking, BookingOffer
 from app.repositories.base import BaseRepository
 
@@ -28,6 +29,12 @@ class BookingRepository(BaseRepository[Booking]):
         )
         return list(result.scalars().all())
 
+    async def count_for_patient(self, patient_id: uuid.UUID) -> int:
+        result = await self.session.execute(
+            select(func.count()).select_from(Booking).where(Booking.patient_id == patient_id)
+        )
+        return result.scalar_one()
+
     async def list_for_professional(
         self, professional_id: uuid.UUID, *, limit: int, offset: int
     ) -> list[Booking]:
@@ -37,6 +44,28 @@ class BookingRepository(BaseRepository[Booking]):
             .order_by(Booking.scheduled_start_at.desc())
             .limit(limit)
             .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    async def count_for_professional(self, professional_id: uuid.UUID) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Booking)
+            .where(Booking.professional_id == professional_id)
+        )
+        return result.scalar_one()
+
+    async def list_completed_for_professional_between(
+        self, professional_id: uuid.UUID, *, start: datetime, end: datetime
+    ) -> list[Booking]:
+        """Completed visits in [start, end) — the base dataset for earnings aggregation."""
+        result = await self.session.execute(
+            select(Booking).where(
+                Booking.professional_id == professional_id,
+                Booking.status == BookingStatus.COMPLETED,
+                Booking.scheduled_start_at >= start,
+                Booking.scheduled_start_at < end,
+            )
         )
         return list(result.scalars().all())
 

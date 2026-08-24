@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.constants import (
     AvailabilityStatus,
     DocumentType,
+    PreferredContactMethod,
     ProfessionalType,
     VerificationStatus,
 )
@@ -39,6 +40,21 @@ class ProfessionalProfile(Base, UUIDPKMixin, TimestampMixin):
         pg_enum(ProfessionalType, "professional_type"), nullable=False
     )
     years_of_experience: Mapped[int] = mapped_column(SmallInteger, default=0, nullable=False)
+    # Free-text version of experience as collected at registration (e.g. "6 years in ICU care"),
+    # distinct from years_of_experience which is the structured number used for search/ranking.
+    experience_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    qualifications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certifications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preferred_contact: Mapped[PreferredContactMethod] = mapped_column(
+        pg_enum(PreferredContactMethod, "preferred_contact_method"),
+        default=PreferredContactMethod.EMAIL,
+        nullable=False,
+    )
+    # Free-text address captured at registration — see the identical note on PatientProfile.
+    address_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     license_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     council_registration_number: Mapped[str | None] = mapped_column(String(100), nullable=True)

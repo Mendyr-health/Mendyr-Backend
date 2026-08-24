@@ -7,11 +7,16 @@ from app.api.v1.endpoints import (
     auth,
     bookings,
     health,
+    messaging,
     offers,
+    patient,
     payments,
     professionals,
+    public,
     reviews,
+    search,
     services,
+    super_admin,
     support,
     users,
     visits,
@@ -36,3 +41,8 @@ api_router.include_router(wallet.router)
 api_router.include_router(reviews.router)
 api_router.include_router(support.router)
 api_router.include_router(admin.router)
+api_router.include_router(super_admin.router)
+api_router.include_router(patient.router)
+api_router.include_router(search.router)
+api_router.include_router(messaging.router)
+api_router.include_router(public.router)

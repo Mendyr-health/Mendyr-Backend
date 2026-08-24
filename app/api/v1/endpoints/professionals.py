@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import require_professional
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.common import MessageResponse
+from app.schemas.appointment import NurseEarningsSummary
+from app.schemas.common import ApiResponse, MessageResponse
 from app.schemas.professional import (
     AvailabilitySlotIn,
     AvailabilityStatusUpdateIn,
@@ -80,3 +81,13 @@ async def update_availability_status(
     service = ProfessionalService(db)
     profile = await service.get_owned_profile(current_user.id)
     return await service.update_availability_status(profile.id, payload)
+
+
+@router.get("/me/earnings", response_model=ApiResponse[NurseEarningsSummary])
+async def get_my_earnings(
+    current_user: User = Depends(require_professional), db: AsyncSession = Depends(get_db)
+) -> ApiResponse[NurseEarningsSummary]:
+    service = ProfessionalService(db)
+    profile = await service.get_owned_profile(current_user.id)
+    summary = await service.get_earnings_summary(profile.id)
+    return ApiResponse.ok(summary)

@@ -2,9 +2,10 @@
 import uuid
 
 import jwt
-from fastapi import Depends, Header
+from fastapi import Cookie, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cookies import ACCESS_COOKIE_NAME
 from app.core.exceptions import UnauthorizedError
 from app.core.security import decode_token
 from app.db.session import get_db
@@ -16,12 +17,18 @@ DbSession = AsyncSession  # readability alias for route signatures
 
 async def get_current_user(
     authorization: str = Header(default=""),
+    access_token_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE_NAME),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    if not authorization.startswith("Bearer "):
+    # Mobile/OTP clients send `Authorization: Bearer <token>`; the email/password web+app
+    # session (app/api/v1/endpoints_web/auth.py) sends it as an httpOnly cookie instead.
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    elif access_token_cookie:
+        token = access_token_cookie
+    else:
         raise UnauthorizedError("Missing or malformed Authorization header.")
 
-    token = authorization.removeprefix("Bearer ").strip()
     try:
         payload = decode_token(token)
     except jwt.ExpiredSignatureError as exc:
