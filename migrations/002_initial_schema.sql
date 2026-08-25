@@ -612,5 +612,3 @@ CREATE TABLE support_ticket_messages (
     CONSTRAINT fk_support_ticket_messages_sender_id_users FOREIGN KEY(sender_id) REFERENCES users (id), 
     CONSTRAINT fk_support_ticket_messages_ticket_id_support_tickets FOREIGN KEY(ticket_id) REFERENCES support_tickets (id) ON DELETE CASCADE
 );
-
-INSERT INTO alembic_version (version_num) VALUES ('fd5a5a27db20') RETURNING alembic_version.version_num;
