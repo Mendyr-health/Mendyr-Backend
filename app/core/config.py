@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALLOWED_HOSTS: list[str] = ["*"]
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Separate from ENVIRONMENT on purpose: ENVIRONMENT=production also drives cookie
+    # Secure/SameSite flags (app/core/cookies.py) and TrustedHostMiddleware — this only
+    # controls whether /docs, /redoc, /openapi.json are registered, for a pre-launch/
+    # internal-testing deploy that wants Swagger reachable without loosening either of those.
+    ENABLE_DOCS: bool = False
 
     # ── Database ─────────────────────────────────────────────────────────
     POSTGRES_HOST: str = "localhost"
