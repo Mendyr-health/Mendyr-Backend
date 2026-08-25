@@ -7,10 +7,10 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_serializer
 
 from app.core.constants import UserRole, UserStatus
-from app.schemas.common import CamelModel, CamelORMModel
+from app.schemas.common import CamelModel, CamelORMModel, frontend_role_name
 
 # ─── Admin accounts (useAdmins.ts) ──────────────────────────────────────────
 
@@ -22,6 +22,10 @@ class AdminEntryOut(CamelORMModel):
     role: UserRole
     status: UserStatus
     created_at: datetime
+
+    @field_serializer("role")
+    def _serialize_role(self, role: UserRole) -> str:
+        return frontend_role_name(role)
 
 
 class AdminCreateIn(CamelModel):

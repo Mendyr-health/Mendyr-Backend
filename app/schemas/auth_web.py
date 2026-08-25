@@ -10,10 +10,10 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_serializer
 
 from app.core.constants import UserRole
-from app.schemas.common import CamelModel, CamelORMModel
+from app.schemas.common import CamelModel, CamelORMModel, frontend_role_name
 
 
 class LoginIn(CamelModel):
@@ -45,8 +45,11 @@ class UserPublicOut(CamelORMModel):
     # UUID (not str) so Pydantic serializes it directly — a plain `str` field would reject
     # the ORM's UUID attribute outright under from_attributes population.
     public_id: uuid.UUID = Field(validation_alias="id", serialization_alias="publicId")
-    email: str
-    phone: str | None
+    # email is nullable on User (OTP-first signups don't collect one); phone's ORM attribute
+    # is phone_number, not phone — validation_alias here overrides CamelORMModel's
+    # alias_generator for just this field, same pattern as public_id above.
+    email: str | None
+    phone: str | None = Field(validation_alias="phone_number", default=None)
     full_name: str
     role: UserRole
     status: str
@@ -54,6 +57,10 @@ class UserPublicOut(CamelORMModel):
     avatar_url: str | None
     last_login_at: datetime | None
     created_at: datetime
+
+    @field_serializer("role")
+    def _serialize_role(self, role: UserRole) -> str:
+        return frontend_role_name(role)
 
 
 class AuthResultOut(CamelModel):

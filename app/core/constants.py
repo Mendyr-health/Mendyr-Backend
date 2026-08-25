@@ -1,7 +1,7 @@
-"""Shared enums — mirrored as Postgres ENUM types in the Alembic migration.
+"""Shared enums — mirrored as Postgres ENUM types in migrations/002_initial_schema.sql.
 
-Keep this file and `alembic/versions/0001_initial_schema.py` in sync: adding a
-value here requires an `ALTER TYPE ... ADD VALUE` migration in production.
+Keep this file and that migration in sync: adding a value here requires a
+`migrations/NNN_....sql` with `ALTER TYPE ... ADD VALUE` (see migrations/README.md).
 """
 
 from enum import StrEnum

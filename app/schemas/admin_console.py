@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_serializer
 
 from app.core.constants import (
     ContactInquiryStatus,
@@ -20,7 +20,7 @@ from app.core.constants import (
     UserRole,
     VerificationStatus,
 )
-from app.schemas.common import CamelModel
+from app.schemas.common import CamelModel, frontend_role_name
 
 # ─── Shared: embedded user (mirrors UserPublic in src/types/index.ts) ────────
 
@@ -36,6 +36,10 @@ class UserMiniOut(CamelModel):
     avatar_url: str | None
     last_login_at: datetime | None
     created_at: datetime
+
+    @field_serializer("role")
+    def _serialize_role(self, role: UserRole) -> str:
+        return frontend_role_name(role)
 
 
 # ─── Nurse (ProfessionalProfile) ──────────────────────────────────────────

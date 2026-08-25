@@ -5,7 +5,28 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
+from app.core.constants import UserRole
+
 T = TypeVar("T")
+
+# The frontend's Role type (src/lib/mock-users.ts) is "SUPER_ADMIN" | "ADMIN" | "NURSE" |
+# "PATIENT" — uppercase, and "NURSE" rather than this backend's "professional" (the role
+# name predates this product settling on "nurse" as the user-facing term, and changing the
+# enum's stored value would mean a data migration for no real benefit). Every schema that
+# exposes `role` to the frontend must serialize through this, or role-based routing on the
+# frontend (dashboard layout's nav-link switch, onboarding redirect, etc.) silently breaks
+# on the case/name mismatch — it did once already; see the git history of this comment.
+_FRONTEND_ROLE_NAMES: dict[UserRole, str] = {
+    UserRole.PATIENT: "PATIENT",
+    UserRole.PROFESSIONAL: "NURSE",
+    UserRole.ADMIN: "ADMIN",
+    UserRole.SUPER_ADMIN: "SUPER_ADMIN",
+    UserRole.OPS: "OPS",
+}
+
+
+def frontend_role_name(role: UserRole) -> str:
+    return _FRONTEND_ROLE_NAMES[role]
 
 
 class ORMModel(BaseModel):
