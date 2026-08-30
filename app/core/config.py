@@ -73,8 +73,8 @@ class Settings(BaseSettings):
 
     # ── Redis / Celery ───────────────────────────────────────────────────
     # Set false to run without a Redis instance at all: rate limiting falls back to an
-    # in-process (single-worker-process-only) store, and OTP resend cooldown is skipped
-    # entirely. Fine for early local/dev use; Celery worker/beat still need real Redis to run
+    # in-process (single-worker-process-only) store. Fine for early local/dev use;
+    # Celery worker/beat still need real Redis to run
     # (background jobs just won't be sent anywhere if you're not running those processes).
     REDIS_ENABLED: bool = True
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -85,11 +85,6 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 60
-    OTP_LENGTH: int = 6
-    OTP_TTL_SECONDS: int = 300
-    OTP_MAX_ATTEMPTS: int = 5
-    OTP_RESEND_COOLDOWN_SECONDS: int = 45
-    OTP_DEV_BYPASS_CODE: str = "000000"
 
     # ── Marketplace rules ────────────────────────────────────────────────
     PLATFORM_COMMISSION_PCT: float = 20

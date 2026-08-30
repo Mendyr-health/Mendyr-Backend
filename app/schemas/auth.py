@@ -1,35 +1,33 @@
-"""OTP-first auth flow: request OTP -> verify OTP -> token pair. Password login is admin-only."""
+"""Email + password auth flow: register / login -> JWT pair, refreshable."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
-from app.core.constants import UserRole
-
-
-class OTPRequestIn(BaseModel):
-    phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{9,14}$")
-    purpose: str = Field(default="login", pattern="^(login|signup|change_phone)$")
+from app.core.constants import Gender, UserRole
 
 
-class OTPVerifyIn(BaseModel):
-    phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{9,14}$")
-    code: str = Field(..., min_length=4, max_length=8)
-    purpose: str = Field(default="login", pattern="^(login|signup|change_phone)$")
-    # Required only the first time a phone number completes signup:
-    full_name: str | None = None
-    role: UserRole | None = None
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=150)
+    role: UserRole = UserRole.PATIENT
+    # Optional profile details — collected at signup when the client has them, otherwise
+    # filled in later via PATCH /users/me.
+    phone_number: str | None = Field(default=None, pattern=r"^\+?[1-9]\d{9,14}$")
+    gender: Gender | None = None
     referral_code: str | None = None
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # access-token lifetime in seconds, so the client can pre-emptively refresh
 
 
 class RefreshTokenIn(BaseModel):
     refresh_token: str
-
-
-class AdminLoginIn(BaseModel):
-    email: str
-    password: str

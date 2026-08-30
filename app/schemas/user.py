@@ -9,7 +9,7 @@ from app.schemas.common import ORMModel
 
 class UserRead(ORMModel):
     id: uuid.UUID
-    phone_number: str
+    phone_number: str | None
     phone_verified: bool
     email: str | None
     full_name: str

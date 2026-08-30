@@ -1,4 +1,4 @@
-"""Shared async Redis client — used for OTP storage, rate limiting and dispatch locks."""
+"""Shared async Redis client — used for rate limiting and dispatch locks."""
 
 from redis.asyncio import ConnectionPool, Redis
 

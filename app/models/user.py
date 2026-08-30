@@ -1,4 +1,4 @@
-"""Auth-level identity: User, OTP verification records, registered push devices."""
+"""Auth-level identity: User, legacy OTP verification records, registered push devices."""
 
 import uuid
 from datetime import datetime
@@ -15,13 +15,15 @@ from app.db.types import pg_enum
 class User(Base, UUIDPKMixin, TimestampMixin, SoftDeleteMixin):
     """Root identity shared by patients, professionals and internal staff.
 
-    Phone number is the primary login credential (OTP-first, matching Indian
-    consumer-app UX); email + password are optional, mainly used by admin/ops.
+    Email + password is the login credential; phone number is an optional profile
+    detail collected at signup or added later.
     """
 
     __tablename__ = "users"
 
-    phone_number: Mapped[str] = mapped_column(String(15), unique=True, nullable=False, index=True)
+    phone_number: Mapped[str | None] = mapped_column(
+        String(15), unique=True, nullable=True, index=True
+    )
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
@@ -64,7 +66,11 @@ class User(Base, UUIDPKMixin, TimestampMixin, SoftDeleteMixin):
 
 
 class OTPVerification(Base, UUIDPKMixin):
-    """Short-lived OTP challenges for login/signup/phone-change. Hashed, never stored raw."""
+    """Unused: retained only so the existing otp_verifications table still maps.
+
+    The prototype authenticates with email + password; nothing writes rows here. Drop the
+    model and the table together when you're sure no OTP flow is coming back.
+    """
 
     __tablename__ = "otp_verifications"
 
