@@ -56,7 +56,7 @@ class RegisterIn(BaseModel):
     phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{9,14}$", alias="phone")
     gender: Gender | None = None
     date_of_birth: datetime | None = Field(default=None, alias="dob")
-    referral_code: str | None = None
+    referral_code: str | None = Field(default=None, alias="referralCode")
     # Free-form additional data — no schema enforcement, same JSONB column the config-driven
     # extended_attributes on the other domain tables use. Also where `_adapt_frontend_payload`
     # stashes fields like address/city/state/experience that aren't first-class User columns.
