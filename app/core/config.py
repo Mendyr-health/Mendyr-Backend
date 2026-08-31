@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 60
 
+    # Also set the refresh token as an httponly cookie (in addition to the response body),
+    # so browser clients can rely on it without storing the token in JS-accessible storage.
+    REFRESH_TOKEN_COOKIE_ENABLED: bool = True
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+
     # ── Marketplace rules ────────────────────────────────────────────────
     PLATFORM_COMMISSION_PCT: float = 20
     GST_PCT: float = 18

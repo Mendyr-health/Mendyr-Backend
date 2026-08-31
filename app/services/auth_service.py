@@ -47,14 +47,14 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-    async def register(
+async def register(
         self,
         *,
         email: str,
         password: str,
         full_name: str,
         role: UserRole,
-        phone_number: str | None = None,
+        phone_number: str,
         gender: Gender | None = None,
         referral_code: str | None = None,
     ) -> TokenPair:
@@ -62,7 +62,7 @@ class AuthService:
 
         if await self.users.get_by_email(email) is not None:
             raise ConflictError("An account with this email already exists.")
-        if phone_number and await self.users.get_by_phone(phone_number) is not None:
+        if await self.users.get_by_phone(phone_number) is not None:
             raise ConflictError("An account with this phone number already exists.")
 
         referred_by = (
