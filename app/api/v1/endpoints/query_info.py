@@ -17,7 +17,7 @@ from app.schemas.query_info import (
 )
 from app.services.query_info_service import QueryInfoService
 
-router = APIRouter(prefix="/query-info", tags=["query-info"])
+router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("", response_model=list[QueryInfoRead])
