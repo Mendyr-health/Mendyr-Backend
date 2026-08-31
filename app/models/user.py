@@ -108,3 +108,27 @@ class DeviceToken(Base, UUIDPKMixin, TimestampMixin):
     user: Mapped["User"] = relationship(back_populates="device_tokens")
 
     __table_args__ = (Index("uq_device_tokens_user_token", "user_id", "push_token", unique=True),)
+
+
+class RefreshToken(Base, UUIDPKMixin):
+    """One row per issued refresh JWT, tracked by its `jti` claim.
+
+    The JWT signature/expiry is still verified first (see `auth_service.refresh()`) — this
+    table exists purely so a token can be *revoked* before its natural expiry, which a bare
+    JWT can never support. Refresh tokens rotate on every use: using one marks it
+    `revoked_at` and issues a new row: presenting an already-revoked token again is treated
+    as theft and revokes every active token for that user.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    jti: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Best-effort audit trail linking a rotated token to whatever replaced it — not used for
+    # any security decision, `revoked_at` alone is what makes a token unusable.
+    replaced_by_jti: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

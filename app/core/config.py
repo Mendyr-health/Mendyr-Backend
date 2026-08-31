@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     # ── Auth ─────────────────────────────────────────────────────────────
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Also set the refresh token as an httponly cookie (in addition to the response body),
     # so browser clients can rely on it without storing the token in JS-accessible storage.

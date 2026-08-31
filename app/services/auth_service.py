@@ -3,7 +3,7 @@
 import secrets
 import string
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,8 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import RefreshToken, User
+from app.repositories.refresh_token_repo import RefreshTokenRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import TokenPair
 from app.services.wallet_service import WalletService
@@ -38,12 +39,25 @@ class AuthService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.users = UserRepository(session)
+        self.refresh_tokens = RefreshTokenRepository(session)
         self.wallet_service = WalletService(session)
 
-    def _issue_pair(self, user: User) -> TokenPair:
+    async def _issue_pair(self, user: User) -> TokenPair:
+        jti = uuid.uuid4()
+        now = datetime.now(UTC)
+        self.refresh_tokens.add(
+            RefreshToken(
+                user_id=user.id,
+                jti=jti,
+                issued_at=now,
+                expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            )
+        )
+        await self.session.flush()
+
         return TokenPair(
             access_token=create_access_token(str(user.id), role=user.role.value),
-            refresh_token=create_refresh_token(str(user.id)),
+            refresh_token=create_refresh_token(str(user.id), jti=str(jti)),
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
@@ -84,7 +98,7 @@ class AuthService:
         await self.session.flush()
         await self.wallet_service.get_or_create_wallet(user.id)
 
-        return self._issue_pair(user)
+        return await self._issue_pair(user)
 
     async def login(self, *, email: str, password: str) -> TokenPair:
         user = await self.users.get_by_email(email.strip().lower())
@@ -101,10 +115,17 @@ class AuthService:
 
         user.last_login_at = datetime.now(UTC)
         await self.session.flush()
-        return self._issue_pair(user)
+        return await self._issue_pair(user)
 
     async def refresh(self, refresh_token: str) -> TokenPair:
-        """Exchange a valid refresh token for a fresh access+refresh pair."""
+        """Exchange a valid, not-yet-used refresh token for a fresh access+refresh pair.
+
+        Refresh tokens rotate on every use: the presented token is marked revoked and a new
+        one is issued in its place. If an already-revoked token is presented again — the
+        signal for a leaked token being replayed after the legitimate client already rotated
+        past it — every active refresh token for that user is revoked, forcing a full
+        re-login everywhere.
+        """
         try:
             payload = decode_token(refresh_token)
         except jwt.ExpiredSignatureError as exc:
@@ -117,6 +138,7 @@ class AuthService:
 
         try:
             user_id = uuid.UUID(payload["sub"])
+            jti = uuid.UUID(payload["jti"])
         except (KeyError, ValueError) as exc:
             raise UnauthorizedError("Invalid refresh token.") from exc
 
@@ -126,4 +148,23 @@ class AuthService:
         if user.status is not UserStatus.ACTIVE:
             raise UnauthorizedError("This account is not active. Please contact support.")
 
-        return self._issue_pair(user)
+        token_record = await self.refresh_tokens.get_by_jti(jti)
+        if token_record is None:
+            raise UnauthorizedError("Invalid refresh token.")
+
+        now = datetime.now(UTC)
+        if token_record.revoked_at is not None:
+            await self.refresh_tokens.revoke_all_for_user(user.id, now=now)
+            await self.session.flush()
+            raise UnauthorizedError(
+                "This refresh token has already been used. All sessions have been revoked "
+                "for security — please log in again."
+            )
+        if token_record.expires_at < now:
+            raise UnauthorizedError("Refresh token has expired. Please log in again.")
+
+        token_record.revoked_at = now
+        new_pair = await self._issue_pair(user)
+        token_record.replaced_by_jti = uuid.UUID(decode_token(new_pair.refresh_token)["jti"])
+        await self.session.flush()
+        return new_pair

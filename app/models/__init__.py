@@ -24,7 +24,7 @@ from app.models.professional import (
 from app.models.review import Review
 from app.models.service import ProfessionalService, Service, ServiceCategory
 from app.models.support import SupportTicket, SupportTicketMessage
-from app.models.user import DeviceToken, OTPVerification, User
+from app.models.user import DeviceToken, OTPVerification, RefreshToken, User
 from app.models.wallet import Coupon, CouponRedemption, Wallet, WalletTransaction
 
 __all__ = [
@@ -54,6 +54,7 @@ __all__ = [
     "SupportTicketMessage",
     "DeviceToken",
     "OTPVerification",
+    "RefreshToken",
     "User",
     "Coupon",
     "CouponRedemption",
