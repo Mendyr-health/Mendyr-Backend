@@ -10,6 +10,7 @@ from app.models.booking import (
     CarePlan,
     VisitTrackingPing,
 )
+from app.models.config import Config
 from app.models.notification import Notification
 from app.models.patient import PatientProfile
 from app.models.payment import Payment, Payout
@@ -35,6 +36,7 @@ __all__ = [
     "BookingVisit",
     "CarePlan",
     "VisitTrackingPing",
+    "Config",
     "Notification",
     "PatientProfile",
     "Payment",
