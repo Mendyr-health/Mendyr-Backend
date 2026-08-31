@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.constants import Gender, UserRole, UserStatus
 from app.schemas.common import ORMModel
@@ -25,10 +25,11 @@ class UserRead(ORMModel):
 
 
 class UserUpdateIn(BaseModel):
-    full_name: str | None = None
+    full_name: str | None = Field(default=None, min_length=1, max_length=150)
     gender: Gender | None = None
     date_of_birth: datetime | None = None
     email: str | None = None
+    phone_number: str | None = Field(default=None, pattern=r"^\+?[1-9]\d{9,14}$")
     avatar_url: str | None = None
 
 

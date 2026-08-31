@@ -79,3 +79,31 @@ class ProfessionalPublicRead(BaseModel):
     average_rating: float
     total_ratings: int
     languages_spoken: list[str] | None
+
+
+class NearbyProfessionalRead(ProfessionalPublicRead):
+    """A professional appearing in the patient app's "nearby available nurses" browse list."""
+
+    distance_km: float
+
+
+class ProfessionalServiceRead(BaseModel):
+    """One row of the professional's own view of the catalogue: which services they've opted
+    into and what they charge for each (base price unless they've overridden it)."""
+
+    service_id: uuid.UUID
+    service_name: str
+    category_name: str
+    base_price: float
+    price_override: float | None
+    effective_price: float
+    is_opted_in: bool
+
+
+class ProfessionalServiceUpdateIn(BaseModel):
+    """Opt into (or out of) a catalogue service and set a per-visit price for it. Omitting
+    `price_override` (or setting it to null) charges the catalogue's `base_price` instead —
+    e.g. for a senior/ICU nurse charging above the standard rate for the same service."""
+
+    is_opted_in: bool = True
+    price_override: float | None = Field(default=None, ge=0)

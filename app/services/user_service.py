@@ -5,14 +5,16 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models.user import DeviceToken, User
+from app.repositories.user_repo import UserRepository
 from app.schemas.user import DeviceTokenIn, UserUpdateIn
 
 
 class UserService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+        self.users = UserRepository(session)
 
     async def get(self, user_id: uuid.UUID) -> User:
         user = await self.session.get(User, user_id)
@@ -22,7 +24,20 @@ class UserService:
 
     async def update_profile(self, user_id: uuid.UUID, payload: UserUpdateIn) -> User:
         user = await self.get(user_id)
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        updates = payload.model_dump(exclude_unset=True)
+
+        if "email" in updates and updates["email"] != user.email:
+            email = (updates["email"] or "").strip().lower() or None
+            existing_email_user = await self.users.get_by_email(email) if email else None
+            if existing_email_user is not None and existing_email_user.id != user_id:
+                raise ConflictError("An account with this email already exists.")
+            updates["email"] = email
+        if "phone_number" in updates and updates["phone_number"] != user.phone_number:
+            existing = await self.users.get_by_phone(updates["phone_number"])
+            if existing is not None and existing.id != user_id:
+                raise ConflictError("An account with this phone number already exists.")
+
+        for field, value in updates.items():
             setattr(user, field, value)
         await self.session.flush()
         return user

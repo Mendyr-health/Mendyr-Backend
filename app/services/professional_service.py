@@ -16,6 +16,7 @@ from app.models.professional import (
     ProfessionalSpecialization,
 )
 from app.models.service import ProfessionalService as ProfessionalServiceOptIn
+from app.models.service import Service
 from app.repositories.professional_repo import ProfessionalRepository
 from app.schemas.professional import (
     AvailabilitySlotIn,
@@ -23,6 +24,8 @@ from app.schemas.professional import (
     ProfessionalDocumentUploadIn,
     ProfessionalOnboardIn,
     ProfessionalReviewDecisionIn,
+    ProfessionalServiceRead,
+    ProfessionalServiceUpdateIn,
 )
 
 
@@ -130,6 +133,62 @@ class ProfessionalService:
             created.append(row)
         await self.session.flush()
         return created
+
+    async def list_my_services(self, professional_id: uuid.UUID) -> list[ProfessionalServiceRead]:
+        profile = await self.professionals.get(professional_id)
+        if profile is None:
+            raise NotFoundError("Professional not found.")
+
+        rows = await self.professionals.list_catalogue_with_pricing(
+            professional_id, profile.professional_type
+        )
+        return [
+            ProfessionalServiceRead(
+                service_id=service.id,
+                service_name=service.name,
+                category_name=category.name,
+                base_price=float(service.base_price),
+                price_override=float(optin.price_override)
+                if optin and optin.price_override is not None
+                else None,
+                effective_price=float(
+                    optin.price_override
+                    if optin and optin.price_override is not None
+                    else service.base_price
+                ),
+                is_opted_in=optin is not None and optin.is_active,
+            )
+            for service, category, optin in rows
+        ]
+
+    async def set_service_pricing(
+        self,
+        professional_id: uuid.UUID,
+        service_id: uuid.UUID,
+        payload: ProfessionalServiceUpdateIn,
+    ) -> ProfessionalServiceOptIn:
+        profile = await self.professionals.get(professional_id)
+        if profile is None:
+            raise NotFoundError("Professional not found.")
+
+        service = await self.session.get(Service, service_id)
+        if service is None or not service.is_active:
+            raise NotFoundError("Service not found.")
+        if service.required_professional_type != profile.professional_type:
+            raise ValidationAppError(
+                f"This service requires a {service.required_professional_type.value}, "
+                f"not a {profile.professional_type.value}."
+            )
+
+        optin = await self.professionals.get_service_optin(professional_id, service_id)
+        if optin is None:
+            optin = ProfessionalServiceOptIn(professional_id=professional_id, service_id=service_id)
+            self.session.add(optin)
+
+        optin.is_active = payload.is_opted_in
+        optin.price_override = payload.price_override
+        await self.session.flush()
+        return optin
 
     async def update_availability_status(
         self, professional_id: uuid.UUID, payload: AvailabilityStatusUpdateIn

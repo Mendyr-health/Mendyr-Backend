@@ -81,6 +81,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "N806"]
+# CLI scripts print their results/progress by design — that's their whole interface.
+"scripts/*" = ["T20"]
 # SQLAlchemy 2.0 relationships reference sibling models by quoted forward-ref string
 # (`Mapped["User"]`) resolved lazily by the mapper registry, not by module-level name
 # lookup — ruff's F821 doesn't know that pattern and flags every one as undefined.
