@@ -1,10 +1,10 @@
-name: Create or promote admin user
+name: Manage admin/user accounts
 
-# Manual-only: the only CI-triggerable way to provision an `admin` account (see
-# scripts/create_admin.py — self-registration can never create one; app/schemas/auth.py
-# rejects `role=admin` at signup).
+# Manual-only: the only CI-triggerable way to provision an `admin` account, or to delete any
+# user account (see scripts/create_admin.py — self-registration can never create an admin;
+# app/schemas/auth.py rejects `role=admin` at signup).
 #
-# Two modes:
+# Three modes:
 #   promote — flips an EXISTING user's role to admin. No password involved at all.
 #   create  — bootstraps a brand-new admin. The password is generated inside this job and
 #             printed once in the run's log — it is NOT accepted as a workflow input, since
@@ -12,16 +12,18 @@ name: Create or promote admin user
 #             and persist in the run's trigger metadata). Copy the printed password
 #             immediately: anyone with read access to this repo's Actions can see this run's
 #             log afterwards, same trust level as any other CI log here.
+#   delete  — soft-deletes ANY user by email (sets status=DELETED, which login/refresh already
+#             reject). Not a real row deletion — see scripts/create_admin.py for why.
 on:
   workflow_dispatch:
     inputs:
       mode:
         type: choice
-        description: "promote an existing user, or create a brand-new admin"
-        options: [promote, create]
+        description: "promote an existing user, create a brand-new admin, or delete a user"
+        options: [promote, create, delete]
         default: promote
       email:
-        description: "Email of the user to promote / create"
+        description: "Email of the user to promote / create / delete"
         required: true
         type: string
       full_name:
@@ -85,3 +87,15 @@ jobs:
             --email "${{ inputs.email }}" \
             --phone "${{ inputs.phone_number }}" \
             --full-name "${{ inputs.full_name }}"
+
+      - name: Delete (deactivate) user
+        if: inputs.mode == 'delete'
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_SSL_REQUIRED: "true"
+        run: uv run python -m scripts.create_admin delete --email "${{ inputs.email }}"

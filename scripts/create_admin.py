@@ -1,4 +1,5 @@
-"""Create or promote an admin user — the only supported way to provision `role=admin` accounts.
+"""Create, promote, or delete admin/user accounts — the only supported way to provision
+`role=admin` accounts.
 
 `POST /auth/register` only ever creates `patient`/`professional` accounts (enforced in
 `app/schemas/auth.py`); `admin`/`ops` accounts are deliberately unreachable through any public
@@ -11,6 +12,15 @@ Usage:
     # Bootstrap a brand-new admin account (e.g. the very first admin on a fresh DB):
     uv run python -m scripts.create_admin create \\
         --email you@example.com --phone +919876500000 --full-name "Jane Doe"
+
+    # Delete (deactivate) any user account by email:
+    uv run python -m scripts.create_admin delete --email someone@example.com
+
+`delete` is a soft delete — it sets `status=DELETED` (which the login/refresh flow already
+rejects) rather than removing the row. A real `DELETE FROM users` isn't safe here: several
+tables (bookings, payments, reviews, support tickets) reference `users.id` with no cascade,
+so it would routinely fail with a foreign-key violation for any user with real activity, and
+where cascades do exist (addresses, wallet, profiles) it would silently destroy that data.
 
 Password: set $ADMIN_PASSWORD before running, or leave it unset to be prompted interactively
 (hidden input). Never pass it as a `--password` flag — it would end up in shell history and
@@ -121,6 +131,35 @@ async def create(*, email: str, phone_number: str, full_name: str) -> None:
     print(f"Created admin user {email}.")
 
 
+async def delete(email: str) -> None:
+    email = email.strip().lower()
+    async with AsyncSessionLocal() as session:
+        user = (
+            await session.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if user is None:
+            raise SystemExit(f"No user found with email {email!r}.")
+        if user.status is UserStatus.DELETED:
+            print(f"{email} is already deleted. Nothing to do.")
+            return
+
+        previous_status = user.status.value
+        user.status = UserStatus.DELETED
+        user.deleted_at = datetime.now(UTC)
+        session.add(
+            AuditLog(
+                actor_id=None,
+                action="user.deleted",
+                entity_type="user",
+                entity_id=str(user.id),
+                metadata_json=json.dumps({"previous_status": previous_status}),
+                created_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+    print(f"Deleted (deactivated) {email} — was {previous_status}.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -133,14 +172,21 @@ def main() -> None:
     create_parser.add_argument("--phone", required=True, dest="phone_number")
     create_parser.add_argument("--full-name", required=True, dest="full_name")
 
+    delete_parser = subparsers.add_parser(
+        "delete", help="Delete (deactivate) any user account by email."
+    )
+    delete_parser.add_argument("--email", required=True)
+
     args = parser.parse_args()
 
     if args.command == "promote":
         asyncio.run(promote(args.email))
-    else:
+    elif args.command == "create":
         asyncio.run(
             create(email=args.email, phone_number=args.phone_number, full_name=args.full_name)
         )
+    else:
+        asyncio.run(delete(args.email))
 
 
 if __name__ == "__main__":
