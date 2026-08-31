@@ -1,0 +1,43 @@
+name: Repair migration tracking
+
+# Manual-only: detects drift between `alembic_version` and the database's real schema (see
+# scripts/repair_migrations.py for what this fixes) and, if requested, repairs it. Never runs
+# automatically — dry run is the default even when triggered, so `apply: true` must be chosen
+# explicitly to make the script actually stamp anything.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Stamp alembic_version for real (unchecked = dry run, report only)"
+        type: boolean
+        default: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run repair_migrations.py
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_SSL_REQUIRED: "true"
+        run: |
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            uv run python -m scripts.repair_migrations --apply
+          else
+            uv run python -m scripts.repair_migrations
+          fi
