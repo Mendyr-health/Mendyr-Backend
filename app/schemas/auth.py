@@ -1,5 +1,7 @@
 """Email + password auth flow: register / login -> JWT pair, refreshable."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.constants import Gender, UserRole
@@ -18,6 +20,7 @@ class RegisterIn(BaseModel):
     # missing number must fail validation here (422) rather than at INSERT time (500).
     phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{9,14}$")
     gender: Gender | None = None
+    date_of_birth: datetime | None = None
     referral_code: str | None = None
 
     @field_validator("role")
