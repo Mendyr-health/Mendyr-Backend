@@ -71,7 +71,15 @@ class PaymentError(AppError):
 
 
 def _error_body(code: str, message: str) -> dict:
-    return {"error": {"code": code, "message": message}}
+    # Matches the `{success, data, meta, error}` envelope `ResponseEnvelopeMiddleware` applies
+    # to every success response — this is the failure-shaped member of that same envelope, so
+    # the frontend's single `if (!data.success)` check works uniformly everywhere.
+    return {
+        "success": False,
+        "data": None,
+        "meta": None,
+        "error": {"code": code, "message": message},
+    }
 
 
 def register_exception_handlers(app: FastAPI) -> None:

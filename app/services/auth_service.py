@@ -23,6 +23,7 @@ from app.models.user import RefreshToken, User
 from app.repositories.refresh_token_repo import RefreshTokenRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import TokenPair
+from app.schemas.user import UserRead
 from app.services.wallet_service import WalletService
 
 REFERRAL_ALPHABET = string.ascii_uppercase + string.digits
@@ -60,6 +61,7 @@ class AuthService:
             access_token=create_access_token(str(user.id), role=user.role.value),
             refresh_token=create_refresh_token(str(user.id), jti=str(jti)),
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user=UserRead.model_validate(user),
         )
 
     async def register(
@@ -173,3 +175,7 @@ class AuthService:
         token_record.replaced_by_jti = uuid.UUID(decode_token(new_pair.refresh_token)["jti"])
         await self.session.flush()
         return new_pair
+
+    async def logout(self, user_id: uuid.UUID) -> None:
+        await self.refresh_tokens.revoke_all_for_user(user_id, now=datetime.now(UTC))
+        await self.session.flush()

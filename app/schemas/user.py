@@ -12,12 +12,15 @@ class UserRead(ORMModel):
     phone_number: str
     phone_verified: bool
     email: str | None
+    email_verified: bool
     full_name: str
     gender: Gender
+    date_of_birth: datetime | None
     avatar_url: str | None
     role: UserRole
     status: UserStatus
     referral_code: str
+    last_login_at: datetime | None
     created_at: datetime
 
 

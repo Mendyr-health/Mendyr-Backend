@@ -86,10 +86,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # Also set the refresh token as an httponly cookie (in addition to the response body),
-    # so browser clients can rely on it without storing the token in JS-accessible storage.
+    # Also set both tokens as httponly cookies (in addition to the response body), so browser
+    # clients — the Next.js frontend never reads/stores a token, it's cookie-only — can rely
+    # on them without storing anything in JS-accessible storage. Native/API clients keep using
+    # the response-body tokens as an Authorization: Bearer header instead (see
+    # `_client_platform` in app/api/v1/endpoints/auth.py); this flag gates both cookies.
     REFRESH_TOKEN_COOKIE_ENABLED: bool = True
     REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
 
     # ── Marketplace rules ────────────────────────────────────────────────
     PLATFORM_COMMISSION_PCT: float = 20

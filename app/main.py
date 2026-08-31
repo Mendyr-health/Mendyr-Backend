@@ -10,10 +10,11 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.api import api_router
+from app.api.v1.endpoints import auth as auth_endpoints
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import RequestContextMiddleware, ResponseEnvelopeMiddleware
 from app.core.rate_limit import limiter
 from app.db.session import engine
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(ResponseEnvelopeMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
@@ -62,6 +64,10 @@ def create_app() -> FastAPI:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+    # Second mount, unversioned: apps/patient's login/register/me/logout calls hit
+    # `/api/auth/*` directly (no `/v1`) and authenticate purely via the cookies this router
+    # sets — see the module docstring in app/api/v1/endpoints/auth.py.
+    app.include_router(auth_endpoints.router, prefix="/api")
 
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
