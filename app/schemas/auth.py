@@ -10,9 +10,9 @@ class RegisterIn(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     full_name: str = Field(..., min_length=1, max_length=150)
     role: UserRole = UserRole.PATIENT
-    # Optional profile details — collected at signup when the client has them, otherwise
-    # filled in later via PATCH /users/me.
-    phone_number: str | None = Field(default=None, pattern=r"^\+?[1-9]\d{9,14}$")
+    # Required and unique — `users.phone_number` is NOT NULL UNIQUE in the schema, so a
+    # missing number must fail validation here (422) rather than at INSERT time (500).
+    phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{9,14}$")
     gender: Gender | None = None
     referral_code: str | None = None
 

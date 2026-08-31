@@ -15,15 +15,13 @@ from app.db.types import pg_enum
 class User(Base, UUIDPKMixin, TimestampMixin, SoftDeleteMixin):
     """Root identity shared by patients, professionals and internal staff.
 
-    Email + password is the login credential; phone number is an optional profile
-    detail collected at signup or added later.
+    Email + password is the login credential; phone number is still required and unique
+    (every account maps to exactly one contact number).
     """
 
     __tablename__ = "users"
 
-    phone_number: Mapped[str | None] = mapped_column(
-        String(15), unique=True, nullable=True, index=True
-    )
+    phone_number: Mapped[str] = mapped_column(String(15), unique=True, nullable=False, index=True)
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
