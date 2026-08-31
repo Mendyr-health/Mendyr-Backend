@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     offers,
     payments,
     professionals,
+    query_info,
     reviews,
     services,
     support,
@@ -38,3 +39,4 @@ api_router.include_router(reviews.router)
 api_router.include_router(support.router)
 api_router.include_router(admin.router)
 api_router.include_router(configs.router)
+api_router.include_router(query_info.router)

@@ -50,6 +50,7 @@ dependencies = [
     "razorpay>=1.4.2",
     "jinja2>=3.1.4",
     "slowapi>=0.1.9",
+    "sqlparse>=0.6.0",
 ]
 
 [project.optional-dependencies]

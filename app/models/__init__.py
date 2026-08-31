@@ -21,6 +21,7 @@ from app.models.professional import (
     ProfessionalSpecialization,
     Specialization,
 )
+from app.models.query_info import QueryInfo
 from app.models.review import Review
 from app.models.service import ProfessionalService, Service, ServiceCategory
 from app.models.support import SupportTicket, SupportTicketMessage
@@ -46,6 +47,7 @@ __all__ = [
     "ProfessionalProfile",
     "ProfessionalSpecialization",
     "Specialization",
+    "QueryInfo",
     "Review",
     "ProfessionalService",
     "Service",
