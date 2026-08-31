@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
@@ -76,6 +76,8 @@ class ProfessionalProfile(Base, UUIDPKMixin, TimestampMixin):
     upi_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     is_accepting_bookings: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    extended_attributes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="professional_profile")
     documents: Mapped[list["ProfessionalDocument"]] = relationship(

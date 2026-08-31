@@ -47,7 +47,7 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-async def register(
+    async def register(
         self,
         *,
         email: str,

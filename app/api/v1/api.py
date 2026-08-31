@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     admin,
     auth,
     bookings,
+    configs,
     health,
     offers,
     payments,
@@ -36,3 +37,4 @@ api_router.include_router(wallet.router)
 api_router.include_router(reviews.router)
 api_router.include_router(support.router)
 api_router.include_router(admin.router)
+api_router.include_router(configs.router)

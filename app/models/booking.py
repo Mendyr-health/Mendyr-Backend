@@ -14,7 +14,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
@@ -127,6 +127,8 @@ class Booking(Base, UUIDPKMixin, TimestampMixin):
     cancellation_fee_amount: Mapped[float] = mapped_column(
         Numeric(10, 2), default=0, nullable=False
     )
+
+    extended_attributes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     care_plan: Mapped["CarePlan | None"] = relationship(back_populates="bookings")
     offers: Mapped[list["BookingOffer"]] = relationship(

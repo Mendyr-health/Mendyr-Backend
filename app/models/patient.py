@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin, UUIDPKMixin
@@ -27,5 +27,7 @@ class PatientProfile(Base, UUIDPKMixin, TimestampMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     date_of_birth: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    extended_attributes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="patient_profile")

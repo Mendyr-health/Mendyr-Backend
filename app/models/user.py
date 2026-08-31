@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import DevicePlatform, Gender, UserRole, UserStatus
@@ -46,6 +46,10 @@ class User(Base, UUIDPKMixin, TimestampMixin, SoftDeleteMixin):
     )
 
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Free-form additional data not modeled as first-class columns (e.g. app-specific or
+    # config-driven fields) — no schema enforcement, validate at the API boundary if needed.
+    extended_attributes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     patient_profile: Mapped["PatientProfile | None"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
