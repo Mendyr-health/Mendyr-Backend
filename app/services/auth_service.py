@@ -4,6 +4,7 @@ import secrets
 import string
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,6 +72,7 @@ class AuthService:
         phone_number: str,
         gender: Gender | None = None,
         date_of_birth: datetime | None = None,
+        extended_attributes: dict[str, Any] | None = None,
         referral_code: str | None = None,
     ) -> TokenPair:
         email = email.strip().lower()
@@ -92,6 +94,7 @@ class AuthService:
             phone_number=phone_number,
             gender=gender or Gender.UNSPECIFIED,
             date_of_birth=date_of_birth,
+            extended_attributes=extended_attributes,
             referral_code=_generate_referral_code(),
             referred_by_id=referred_by.id if referred_by else None,
             last_login_at=datetime.now(UTC),

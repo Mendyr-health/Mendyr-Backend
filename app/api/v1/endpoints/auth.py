@@ -57,6 +57,7 @@ async def register(
         phone_number=payload.phone_number,
         gender=payload.gender,
         date_of_birth=payload.date_of_birth,
+        extended_attributes=payload.extended_attributes,
         referral_code=payload.referral_code,
     )
     _set_refresh_cookie(response, tokens.refresh_token, client_platform)

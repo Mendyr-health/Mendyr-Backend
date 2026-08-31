@@ -1,6 +1,7 @@
 """Email + password auth flow: register / login -> JWT pair, refreshable."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -22,6 +23,9 @@ class RegisterIn(BaseModel):
     gender: Gender | None = None
     date_of_birth: datetime | None = None
     referral_code: str | None = None
+    # Free-form additional data — no schema enforcement, same JSONB column the config-driven
+    # extended_attributes on the other domain tables use.
+    extended_attributes: dict[str, Any] | None = None
 
     @field_validator("role")
     @classmethod
