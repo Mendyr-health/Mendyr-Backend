@@ -15,7 +15,7 @@ Usage:
 
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.session import AsyncSessionLocal
 from app.models.user import User
@@ -30,6 +30,22 @@ async def delete_demo_data() -> None:
         if not users:
             print("No demo accounts found — nothing to delete.")
             return
+
+        # `users.referred_by_id` is a self-referential FK, so an account that referred someone
+        # cannot be deleted while that referral row still points at it. Two demo accounts in
+        # one run collide on this by themselves: SQLAlchemy emits the deletes as a single
+        # executemany, and the referrer can be removed before the account referred by them.
+        # Clearing the links first also covers the case that matters more — a real, non-demo
+        # user who signed up with a demo account's referral code, who must survive this with
+        # their own row intact rather than being cascaded away with the referrer.
+        cleared = await session.execute(
+            update(User)
+            .where(User.referred_by_id.in_([u.id for u in users]))
+            .values(referred_by_id=None)
+        )
+        if cleared.rowcount:
+            print(f"  cleared {cleared.rowcount} referral link(s) pointing at these accounts")
+        await session.flush()
 
         for user in users:
             print(f"  deleting {user.email} ({user.role.value})")
