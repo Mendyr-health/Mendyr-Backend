@@ -48,6 +48,7 @@ PATIENT = {
     "full_name": "Asha Patel",
     "phone_number": "+919800000000",
     "gender": Gender.FEMALE,
+    "date_of_birth": datetime(1958, 3, 22, tzinfo=UTC),
 }
 
 
@@ -55,9 +56,16 @@ def _point(lat: float, lng: float) -> WKTElement:
     return WKTElement(f"POINT({lng} {lat})", srid=4326)
 
 
-async def _get_or_create_user(session, *, email, full_name, phone_number, role, gender) -> User:
+async def _get_or_create_user(
+    session, *, email, full_name, phone_number, role, gender, date_of_birth
+) -> User:
     existing = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing is not None:
+        # Backfill only what's actually missing, so re-running repairs accounts seeded before
+        # this field existed (they'd otherwise be bounced into onboarding on every login)
+        # without overwriting anything a demo run has since edited through the app.
+        if existing.date_of_birth is None:
+            existing.date_of_birth = date_of_birth
         return existing
 
     user = User(
@@ -67,6 +75,10 @@ async def _get_or_create_user(session, *, email, full_name, phone_number, role, 
         phone_number=phone_number,
         role=role,
         gender=gender,
+        # Set so these accounts read as fully onboarded: the app sends anyone missing a date
+        # of birth through the "tell us about yourself" step on login, which would otherwise
+        # be the first thing a demo hits.
+        date_of_birth=date_of_birth,
         phone_verified=True,
         email_verified=True,
         referral_code=email.split("@")[0].upper()[:12],
@@ -87,6 +99,7 @@ async def seed() -> None:
             phone_number=PATIENT["phone_number"],
             role=UserRole.PATIENT,
             gender=PATIENT["gender"],
+            date_of_birth=PATIENT["date_of_birth"],
         )
         await WalletService(session).get_or_create_wallet(patient.id)
 
@@ -133,6 +146,8 @@ async def seed() -> None:
                 phone_number=f"+91980000{idx:04d}",
                 role=UserRole.PROFESSIONAL,
                 gender=Gender.FEMALE,
+                # Nurses must be adults; a fixed date keeps the seed deterministic.
+                date_of_birth=datetime(1990, 6, 15, tzinfo=UTC),
             )
             await WalletService(session).get_or_create_wallet(nurse_user.id)
 
