@@ -1,0 +1,75 @@
+name: Seed demo data
+
+# Manual-only, like the other data-mutating workflows here: this writes to (and can delete
+# from) the shared database, so it must never fire off a push.
+#
+# Creates the presentation dataset described in scripts/seed_demo_data.py — one demo patient
+# and two KYC-approved, online nurses with priced services and real geo placement, so
+# `GET /professionals/nearby` and the nurse pricing screens have something real to show.
+#
+# Three modes:
+#   seed   — create the demo accounts (idempotent: matched by email, safe to re-run).
+#   delete — remove them. Scoped to the `*.demo@mendyr.app` suffix by
+#            scripts/delete_demo_data.py, deliberately narrower than `@mendyr.app` so it can
+#            never touch the real accounts that already exist on that domain.
+#   reset  — delete then seed, for getting back to a known-clean demo state.
+#
+# The demo accounts' password is a constant in scripts/seed_demo_data.py (not a secret, and
+# not generated here) — the script prints every credential it creates to this run's log.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: "seed = create demo accounts; delete = remove them; reset = delete then re-seed"
+        options: [seed, delete, reset]
+        default: seed
+      include_catalogue:
+        type: boolean
+        description: "Seed the service catalogue first (scripts/seed.py). Demo nurses need it to price into."
+        default: true
+
+jobs:
+  seed-demo-data:
+    runs-on: ubuntu-latest
+    # Job-level so every step below gets the same connection settings — one place to keep
+    # correct, rather than repeating the block per step and risking one drifting.
+    env:
+      # Settings() validates every field eagerly on import, including SECRET_KEY, which these
+      # scripts never actually use — so it has to be set even though this only touches the
+      # database. Same reasoning as migrate.yml.
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+      POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_SSL_REQUIRED: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # Runs before the demo seed because seed_demo_data.py opts its nurses into existing
+      # catalogue services — with an empty catalogue it would create nurses with nothing to
+      # offer, and the nearby-search results would come back unpriced. Idempotent (rows are
+      # matched by slug), so re-running it on an already-seeded database is a no-op.
+      - name: Seed service catalogue
+        if: inputs.mode != 'delete' && inputs.include_catalogue
+        run: uv run python -m scripts.seed
+
+      # Ordered before the seed so `reset` is delete-then-create, not the reverse.
+      - name: Delete demo accounts
+        if: inputs.mode == 'delete' || inputs.mode == 'reset'
+        run: uv run python -m scripts.delete_demo_data
+
+      - name: Seed demo accounts
+        if: inputs.mode == 'seed' || inputs.mode == 'reset'
+        run: uv run python -m scripts.seed_demo_data
