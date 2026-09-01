@@ -6,6 +6,7 @@ Never hardcode secrets — this module only defines shape + defaults for local d
 """
 
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import quote
 
 from pydantic import computed_field
@@ -94,6 +95,32 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_COOKIE_ENABLED: bool = True
     REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
     ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
+
+    # The browser app (mendyr.app) and the Capacitor shells (https://localhost on Android,
+    # capacitor://localhost on iOS) are all served from a *different site* than this API, so
+    # their session cookies are third-party ones. Browsers only send those when the cookie is
+    # `SameSite=None; Secure` — a `lax` cookie is silently never sent on a cross-site request,
+    # which reads as "logged in, then instantly logged out". Deployments where the API and the
+    # frontend share a site (and local dev over plain HTTP) keep the stricter `lax` default.
+    SESSION_COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    # None → derive from ENVIRONMENT (secure only in production), preserving the original
+    # behaviour; set explicitly to force it either way.
+    SESSION_COOKIE_SECURE: bool | None = None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def session_cookie_secure(self) -> bool:
+        """Whether session cookies carry the `Secure` flag.
+
+        `SameSite=None` is only honoured on a `Secure` cookie — browsers drop the cookie
+        outright otherwise — so `none` implies secure no matter how the flag is set. That's a
+        browser invariant, not a preference, so it's encoded here rather than left to whoever
+        writes the env file to get right.
+        """
+        explicit = (
+            self.is_production if self.SESSION_COOKIE_SECURE is None else self.SESSION_COOKIE_SECURE
+        )
+        return explicit or self.SESSION_COOKIE_SAMESITE == "none"
 
     # ── Marketplace rules ────────────────────────────────────────────────
     PLATFORM_COMMISSION_PCT: float = 20
