@@ -80,6 +80,17 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
 
         if isinstance(parsed, dict) and "success" in parsed and "error" in parsed:
             envelope = parsed  # already {"success": False, ...} from `_error_body`
+        elif response.status_code >= 400:
+            # An error status that didn't already go through `_error_body` — e.g. Starlette's
+            # own 404/405 for a route that never matched, so no exception handler ran at all.
+            # Must never be labeled `success: true` just because the body happens to be JSON.
+            detail = parsed.get("detail") if isinstance(parsed, dict) else None
+            envelope = {
+                "success": False,
+                "data": None,
+                "meta": None,
+                "error": {"code": "http_error", "message": detail or "Request failed."},
+            }
         elif isinstance(parsed, dict) and _PAGE_KEYS.issubset(parsed):
             total_pages = math.ceil(parsed["total"] / parsed["page_size"]) if parsed["total"] else 0
             envelope = {

@@ -7,6 +7,7 @@ consistent JSON error envelope so the mobile app can branch on `error.code`.
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.logging import get_logger
 
@@ -87,6 +88,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         logger.warning("app_error", code=exc.code, path=request.url.path, message=exc.message)
         return JSONResponse(status_code=exc.status_code, content=_error_body(exc.code, exc.message))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        code = "not_found" if exc.status_code == status.HTTP_404_NOT_FOUND else "http_error"
+        return JSONResponse(status_code=exc.status_code, content=_error_body(code, str(exc.detail)))
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
