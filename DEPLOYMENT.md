@@ -22,9 +22,9 @@ fastapi cloud env set NOMINATIM_USER_AGENT "Mendyr/0.1 (contact: <your email>)"
 # + the POSTGRES_* Supabase settings from step 2 below
 ```
 
-Then `fastapi deploy`, and set `BACKEND_URL=https://<your-app>.fastapicloud.app` on the Vercel
+Then `fastapi deploy`, and set `BACKEND_URL=https://<your-app>.fastapicloud.dev` on the Vercel
 project. Requests arrive with the API's own hostname, so `ALLOWED_HOSTS` can stay `["*"]` or be
-set to `["<your-app>.fastapicloud.app"]`. No migration is needed for the MVP branch; seed demo
+set to `["<your-app>.fastapicloud.dev"]`. No migration is needed for the MVP branch; seed demo
 accounts with the "Seed demo data" workflow if you want them.
 
 ## What it does and doesn't do — read this first
@@ -132,8 +132,8 @@ cloud apps list` / `fastapi cloud unlink` manage that link).
 
 ```bash
 fastapi cloud logs                                    # tail the running app's logs
-curl https://<your-app>.fastapicloud.app/api/v1/healthz
-curl https://<your-app>.fastapicloud.app/api/v1/readyz   # confirms it can reach Supabase
+curl https://<your-app>.fastapicloud.dev/api/v1/healthz
+curl https://<your-app>.fastapicloud.dev/api/v1/readyz   # confirms it can reach Supabase
 ```
 
 ## 6. Auto-deploy on push (optional)
