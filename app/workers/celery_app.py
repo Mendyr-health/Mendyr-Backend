@@ -17,6 +17,7 @@ celery_app = Celery(
         "app.workers.tasks.notifications",
         "app.workers.tasks.payouts",
         "app.workers.tasks.reminders",
+        "app.workers.tasks.users",
     ],
 )
 
