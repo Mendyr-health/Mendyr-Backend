@@ -132,6 +132,19 @@ class Settings(BaseSettings):
     FREE_CANCELLATION_WINDOW_MINUTES: int = 60
     CANCELLATION_FEE_PCT: float = 25
     VISIT_CHECKIN_GEOFENCE_METERS: int = 300
+    # Geofenced check-in needs the professional's live GPS at the patient's door. Off for the
+    # web prototype, where "Start visit" is a plain button; when on, check-in must include a
+    # location within VISIT_CHECKIN_GEOFENCE_METERS of the booking address.
+    VISIT_GEOFENCE_ENABLED: bool = False
+    # How far ahead a patient may schedule a visit.
+    BOOKING_MAX_DAYS_AHEAD: int = 60
+    # Professionals are verified on signup while the prototype has no ops review screen. Set
+    # false once KYC review is staffed: new profiles then start PENDING and see no requests
+    # until approved via POST /admin/professionals/{id}/review.
+    AUTO_APPROVE_PROFESSIONALS: bool = True
+    # Weekly availability slots are wall-clock times in this zone. A booking's UTC start time
+    # is converted to it before being compared against a professional's timings.
+    MARKET_TIMEZONE: str = "Asia/Kolkata"
 
     # ── Payments ─────────────────────────────────────────────────────────
     RAZORPAY_KEY_ID: str = ""
@@ -158,6 +171,12 @@ class Settings(BaseSettings):
 
     # ── Maps ─────────────────────────────────────────────────────────────
     GOOGLE_MAPS_API_KEY: str = ""
+    # Address <-> coordinates lookups use OpenStreetMap's free Nominatim service. Its usage
+    # policy (https://operations.osmfoundation.org/policies/nominatim/) allows ~1 request/second
+    # and requires a User-Agent identifying the app — fine for the prototype; move to a paid
+    # geocoder before real traffic.
+    NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
+    NOMINATIM_USER_AGENT: str = "Mendyr/0.1 (+https://mendyr.app)"
 
     # ── Observability ────────────────────────────────────────────────────
     SENTRY_DSN: str = ""

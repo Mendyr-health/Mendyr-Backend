@@ -1,6 +1,7 @@
-"""Seed a small, realistic demo dataset for presenting the prototype: one test patient, two
-test nurses (onboarded, KYC-approved, online, with priced services), and an address near each
-other so the "nearby available nurses" search has something real to show.
+"""Seed a small, realistic demo dataset for presenting the prototype: one test patient with an
+address, two nurses and a physiotherapist (onboarded, approved, accepting requests, opted into
+their profession's services), all within travel range of the patient — so a booking made as
+the patient shows up straight away in the professionals' request lists.
 
 Run `python -m scripts.seed` first — this assumes the service catalogue already exists.
 
@@ -12,7 +13,7 @@ Prints the login credentials for every account it creates or finds.
 """
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
@@ -27,7 +28,7 @@ from app.core.constants import (
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.address import Address
-from app.models.professional import ProfessionalProfile
+from app.models.professional import ProfessionalAvailabilitySlot, ProfessionalProfile
 from app.models.service import ProfessionalService as ProfessionalServiceOptIn
 from app.models.service import Service
 from app.models.user import User
@@ -35,12 +36,17 @@ from app.services.wallet_service import WalletService
 
 DEMO_PASSWORD = "Demo@12345"
 
-# MG Road, Bangalore — patient's address. The two nurses are seeded a few km away in different
-# directions so `GET /professionals/nearby` returns them at different distances.
+# MG Road, Bangalore — patient's address. The professionals are seeded a few km away in
+# different directions so `GET /professionals/nearby` returns them at different distances.
 PATIENT_LOCATION = (12.9716, 77.5946)  # (lat, lng)
-NURSE_LOCATIONS = [
-    ("Priya Sharma", 12.9550, 77.6100),  # ~2.5km away
-    ("Kavita Reddy", 13.0100, 77.5600),  # ~8km away
+SERVICE_RADIUS_KM = 15
+WEEKDAY_DAYTIME = [(day, time(7, 0), time(21, 0)) for day in range(6)]  # Mon-Sat 7am-9pm
+
+# (email prefix, name, profession, lat, lng, weekly timings — None means "any time")
+PROFESSIONALS = [
+    ("nurse1", "Priya Sharma", ProfessionalType.NURSE, 12.9550, 77.6100, WEEKDAY_DAYTIME),
+    ("nurse2", "Kavita Reddy", ProfessionalType.NURSE, 13.0100, 77.5600, None),
+    ("physio1", "Rohan Mehta", ProfessionalType.PHYSIOTHERAPIST, 12.9352, 77.6245, None),
 ]
 
 PATIENT = {
@@ -124,56 +130,64 @@ async def seed() -> None:
                 )
             )
 
-        # ── Nurses ───────────────────────────────────────────────────────
+        # ── Professionals ────────────────────────────────────────────────
         services = (await session.execute(select(Service))).scalars().all()
-        nurse_services = [
-            s for s in services if s.required_professional_type == ProfessionalType.NURSE
-        ]
         if not services:
             print(
                 "WARNING: no services found — run `uv run python -m scripts.seed` first, "
-                "then re-run this script to price the nurses' services."
+                "then re-run this script to opt the professionals into services."
             )
 
         credentials = [(PATIENT["email"], DEMO_PASSWORD, "patient")]
 
-        for idx, (name, lat, lng) in enumerate(NURSE_LOCATIONS, start=1):
-            email = f"nurse{idx}.demo@mendyr.app"
-            nurse_user = await _get_or_create_user(
+        for idx, (prefix, name, kind, lat, lng, timings) in enumerate(PROFESSIONALS, start=1):
+            email = f"{prefix}.demo@mendyr.app"
+            pro_user = await _get_or_create_user(
                 session,
                 email=email,
                 full_name=name,
                 phone_number=f"+91980000{idx:04d}",
                 role=UserRole.PROFESSIONAL,
-                gender=Gender.FEMALE,
-                # Nurses must be adults; a fixed date keeps the seed deterministic.
+                gender=Gender.MALE if kind == ProfessionalType.PHYSIOTHERAPIST else Gender.FEMALE,
+                # Professionals must be adults; a fixed date keeps the seed deterministic.
                 date_of_birth=datetime(1990, 6, 15, tzinfo=UTC),
             )
-            await WalletService(session).get_or_create_wallet(nurse_user.id)
+            await WalletService(session).get_or_create_wallet(pro_user.id)
 
             profile = (
                 await session.execute(
-                    select(ProfessionalProfile).where(ProfessionalProfile.user_id == nurse_user.id)
+                    select(ProfessionalProfile).where(ProfessionalProfile.user_id == pro_user.id)
                 )
             ).scalar_one_or_none()
             if profile is None:
                 profile = ProfessionalProfile(
-                    user_id=nurse_user.id,
-                    professional_type=ProfessionalType.NURSE,
+                    user_id=pro_user.id,
+                    professional_type=kind,
                     years_of_experience=3 + idx,
-                    bio=f"{name} is a registered nurse with {3 + idx} years of home-care "
-                    "experience.",
+                    bio=f"{name} is a registered {kind.value.replace('_', ' ')} with "
+                    f"{3 + idx} years of home-care experience.",
+                    languages_spoken=["English", "Hindi", "Kannada"],
                     verification_status=VerificationStatus.APPROVED,
                     verified_at=datetime.now(UTC),
                     availability_status=AvailabilityStatus.ONLINE,
                     current_location=_point(lat, lng),
                     location_updated_at=datetime.now(UTC),
+                    base_service_radius_km=SERVICE_RADIUS_KM,
                     is_accepting_bookings=True,
                 )
                 session.add(profile)
                 await session.flush()
+                for day, start, end in timings or []:
+                    session.add(
+                        ProfessionalAvailabilitySlot(
+                            professional_id=profile.id,
+                            day_of_week=day,
+                            start_time=start,
+                            end_time=end,
+                        )
+                    )
 
-            for service in nurse_services:
+            for service in [s for s in services if s.required_professional_type == kind]:
                 optin = (
                     await session.execute(
                         select(ProfessionalServiceOptIn).where(
@@ -183,28 +197,24 @@ async def seed() -> None:
                     )
                 ).scalar_one_or_none()
                 if optin is None:
-                    # Second nurse charges a bit above catalogue rate, to show price_override.
-                    override = float(service.base_price) * 1.15 if idx == 2 else None
+                    # No price_override: bookings are priced from the catalogue for now.
                     session.add(
                         ProfessionalServiceOptIn(
-                            professional_id=profile.id,
-                            service_id=service.id,
-                            price_override=override,
-                            is_active=True,
+                            professional_id=profile.id, service_id=service.id, is_active=True
                         )
                     )
 
-            credentials.append((email, DEMO_PASSWORD, "nurse"))
+            credentials.append((email, DEMO_PASSWORD, kind.value))
 
         await session.commit()
 
     print("\nDemo accounts ready:\n")
     for email, password, role in credentials:
-        print(f"  [{role:8}] {email}  /  {password}")
+        print(f"  [{role:15}] {email}  /  {password}")
     print(
-        "\nBoth nurses are ONLINE, KYC-approved, and opted into every nursing service in the "
-        "catalogue. The patient has a default address near MG Road, Bengaluru — "
-        "GET /api/v1/professionals/nearby with that address_id should return both."
+        "\nThe professionals are approved, accepting requests within 15 km, and opted into "
+        "their profession's services. The patient has a default address near MG Road, "
+        "Bengaluru — a booking made there shows up in their request lists."
     )
 
 

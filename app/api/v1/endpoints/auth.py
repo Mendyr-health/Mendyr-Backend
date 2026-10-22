@@ -6,12 +6,13 @@ clients with a Bearer token) and again at the bare `/api/auth` (matching the exa
 frontend relies on instead of ever reading a token from the response body).
 """
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, get_optional_current_user
 from app.core.config import settings
 from app.core.constants import DevicePlatform
+from app.core.exceptions import UnauthorizedError
 from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.user import User
@@ -119,11 +120,17 @@ async def login(
 async def refresh_token(
     request: Request,
     response: Response,
-    payload: RefreshTokenIn,
+    payload: RefreshTokenIn | None = None,
+    refresh_cookie: str | None = Cookie(default=None, alias=settings.REFRESH_TOKEN_COOKIE_NAME),
     db: AsyncSession = Depends(get_db),
     client_platform: str = Depends(_client_platform),
 ) -> TokenPair:
-    tokens = await AuthService(db).refresh(payload.refresh_token)
+    """Body token first (native clients), then the httponly cookie (browsers, which can't
+    read it and so post no body at all)."""
+    token = (payload.refresh_token if payload else None) or refresh_cookie
+    if not token:
+        raise UnauthorizedError("Missing refresh token. Please log in again.")
+    tokens = await AuthService(db).refresh(token)
     _set_session_cookies(response, tokens, client_platform)
     return tokens
 
@@ -138,12 +145,17 @@ async def me(current_user: User = Depends(get_current_user)) -> User:
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
     response: Response,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Revokes every refresh token for the caller (not just the current session's) and clears
     both session cookies. There is no per-session revoke (see `RefreshTokenRepository`), so
-    this logs the user out everywhere, not just this device — acceptable for a prototype."""
-    await AuthService(db).logout(current_user.id)
+    this logs the user out everywhere, not just this device — acceptable for a prototype.
+
+    Works without a valid access token: a browser whose access cookie already expired still
+    needs its cookies cleared, or the surviving refresh cookie would log it straight back in.
+    """
+    if current_user is not None:
+        await AuthService(db).logout(current_user.id)
     _clear_session_cookies(response)
     return MessageResponse(message="Logged out.")

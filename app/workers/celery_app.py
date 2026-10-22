@@ -14,7 +14,6 @@ celery_app = Celery(
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
-        "app.workers.tasks.matching",
         "app.workers.tasks.notifications",
         "app.workers.tasks.payouts",
         "app.workers.tasks.reminders",
@@ -32,10 +31,6 @@ celery_app.conf.update(
 )
 
 celery_app.conf.beat_schedule = {
-    "expire-stale-booking-offers": {
-        "task": "app.workers.tasks.matching.sweep_expired_offers",
-        "schedule": 15.0,  # seconds — offers have a short TTL, so the sweep runs frequently
-    },
     "send-visit-reminders": {
         "task": "app.workers.tasks.reminders.send_upcoming_visit_reminders",
         "schedule": crontab(minute="*/15"),

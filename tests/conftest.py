@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.base_class import Base
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
@@ -35,6 +36,9 @@ def _refuse_unless_local_database() -> None:
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _prepare_schema():
     _refuse_unless_local_database()
+    # Every test client shares one address, so the per-IP auth limits (10 signups/minute)
+    # would otherwise fail tests that just register a handful of users.
+    limiter.enabled = False
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

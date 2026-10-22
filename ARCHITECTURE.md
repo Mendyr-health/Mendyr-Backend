@@ -7,7 +7,7 @@ This document explains the codebase layout, the domain model, and the services t
 the backend, so a new engineer can get oriented without reading every file.
 
 Everything described here has been built, imported, migrated against a real Postgres+PostGIS
-database, and smoke-tested end-to-end (signup → OTP → JWT → professional onboarding → role
+database, and smoke-tested end-to-end (signup → JWT → professional onboarding → role
 checks) as part of building this scaffold. It is a real, running skeleton — not a mockup.
 
 ---
@@ -18,8 +18,8 @@ checks) as part of building this scaffold. It is a real, running skeleton — no
 |-----------------------|----------------------------------------------------------------------|
 | API framework         | FastAPI (async)                                                     |
 | Database              | PostgreSQL + PostGIS (geospatial matching), SQLAlchemy 2.0 (async ORM), Alembic (migrations) |
-| Cache / queues        | Redis (OTP, rate limiting, dispatch locks), Celery (background jobs, scheduled tasks) |
-| Auth                  | Phone OTP (primary) + JWT access/refresh tokens                     |
+| Cache / queues        | Redis (rate limiting; optional), Celery (reminders, payouts — not needed for booking) |
+| Auth                  | Email + password, JWT access/refresh tokens (httponly cookies for the web app) |
 | Payments              | Razorpay (order + webhook + refund)                                 |
 | SMS                   | MSG91 (pluggable provider interface; console provider for local dev) |
 | Push                  | Firebase Cloud Messaging                                             |
@@ -93,7 +93,7 @@ Mendly-Backend/
 │   │
 │   └── workers/                 # Celery — background/scheduled jobs
 │       ├── celery_app.py        #   App + beat schedule
-│       └── tasks/                #   matching (offer-expiry sweep), payouts, reminders, notifications
+│       └── tasks/                #   payouts, reminders, notifications
 │
 ├── alembic/                     # DB migrations (hand-verified against a real Postgres+PostGIS)
 │   ├── env.py
@@ -178,17 +178,16 @@ Full list of tables (see `app/models/`): `users`, `otp_verifications`, `device_t
 
 | Service | Responsibility |
 |---|---|
-| `otp_service.py` | Generates/hashes/verifies OTP codes; resend cooldown via Redis; DB-persisted for audit. |
-| `auth_service.py` | OTP verify → signup-on-first-verify or login; issues JWT access/refresh tokens. |
+| `auth_service.py` | Email + password register/login; issues rotating JWT access/refresh tokens. |
 | `user_service.py` | Profile read/update, device-token registration for push. |
 | `address_service.py` | Patient address book; converts lat/lng ↔ PostGIS `Geography` points. |
 | `professional_service.py` | Onboarding, KYC document records, availability slots/status, ops KYC review. |
 | `catalog_service.py` | Read-only service categories/services for the app home screen. |
 | `pricing_service.py` | **Single source of truth for fare math** — coupon discount → platform commission → GST → total. Pure/stateless so it's trivially unit-tested (see `tests/unit/test_pricing_service.py`). |
-| `matching_service.py` | **The dispatch engine** — the core "connect nurse to patient" logic. See §5. |
-| `booking_service.py` | Booking state machine (`VALID_TRANSITIONS`), quoting, creation, cancellation + fee calc. |
-| `visit_service.py` | En-route → geofenced check-in (`VISIT_CHECKIN_GEOFENCE_METERS`) → check-out. |
-| `payment_service.py` | Razorpay order creation, signature verification, webhook handling (idempotent), refunds. Triggers dispatch once payment is captured. |
+| `booking_service.py` | **The core "connect patient to professional" logic** — booking state machine (`VALID_TRANSITIONS`), quoting, creation, accept/release, cancellation, and the patient's/professional's views of a booking. See §5. |
+| `visit_service.py` | Check-in (start, optionally geofenced) → check-out (complete, with notes). |
+| `geocoding_service.py` | Pincode/city → coordinates and device location → address fields (OpenStreetMap Nominatim), so nobody has to know their latitude. |
+| `payment_service.py` | Razorpay order creation, signature verification, webhook handling (idempotent), refunds. Not used by the prototype's pay-after-visit web flow. |
 | `payout_service.py` | Aggregates completed visits into a weekly payout per professional. |
 | `wallet_service.py` | Credit/debit with row-level locking (`SELECT ... FOR UPDATE`) to avoid races on concurrent balance changes. |
 | `review_service.py` | Post-visit rating; updates the professional's rolling average atomically. |
@@ -201,67 +200,77 @@ endpoint layer — no service is a singleton, so there's no shared mutable state
 
 ---
 
-## 5. The matching/dispatch engine — how a patient gets connected to a nurse
+## 5. Matching — how a patient gets connected to a professional
 
-This is the heart of the marketplace and worth walking through end to end
-(`app/services/matching_service.py`):
+The prototype uses an **open-request board** (`app/services/booking_service.py`), chosen
+because it needs no background worker — FastAPI Cloud only runs the web process:
 
-1. **Trigger.** `MatchingService.start_dispatch(booking_id)` runs once a booking's payment is
-   captured (called from `payment_service.verify_and_capture` / the Razorpay webhook handler).
-2. **Round 1.** `ProfessionalRepository.find_nearby_candidates` runs a PostGIS `ST_DWithin` query
-   for professionals who are `APPROVED`, `ONLINE`, accepting bookings, qualified for the
-   requested service, ranked by `ST_Distance` ascending, within `DEFAULT_SEARCH_RADIUS_KM`.
-3. The closest `OFFERS_PER_ROUND` (3) candidates each get a `BookingOffer` row
-   (`status=PENDING`, `expires_at = now + BOOKING_OFFER_TTL_SECONDS`) and a push notification.
-4. **First accept wins.** `respond_to_offer(accept=True)` sets the booking to `ASSIGNED` and
-   cancels every sibling offer in that round.
-5. **No response in time?** A Celery beat task (`workers/tasks/matching.sweep_expired_offers`,
-   every 15s) finds bookings still `SEARCHING` whose entire round has expired and calls
-   `expire_and_escalate`, which starts the next round with a **wider radius**
-   (linearly interpolated up to `MAX_SEARCH_RADIUS_KM` over `BOOKING_MAX_OFFER_ROUNDS`).
-6. **Exhausted.** After the last round with zero candidates, the booking moves to `FAILED` and
-   raises `NoProfessionalAvailableError` — ops is expected to intervene (support ticket / manual
-   assignment), rather than leaving the patient stuck silently.
+1. **Publish.** `POST /bookings` creates the booking as `SEARCHING` straight away (payment
+   is collected after the visit, outside the app, for now).
+2. **Who sees it.** `GET /bookings/professional/requests` lists, for the calling
+   professional, every `SEARCHING` booking that hasn't started yet where:
+   - the service is one their profession does and they've opted into,
+   - the address is inside **their own** travel radius (`base_service_radius_km`, around
+     the service-area point they set at onboarding — PostGIS `ST_DWithin`),
+   - the start time falls inside one of their **weekly timings** (`MARKET_TIMEZONE`
+     wall-clock; no timings set = available any time),
+   - they're approved and have "accepting requests" switched on.
+   The same rules, from the other side, power `GET /professionals/nearby` ("N
+   professionals available near you"). Both live in the repositories as SQL —
+   `BookingRepository.open_requests_query` and `ProfessionalRepository.find_nearby_candidates`
+   — and must be kept in step.
+3. **First accept wins.** `POST /bookings/{id}/accept` row-locks the booking
+   (`SELECT ... FOR UPDATE`), re-checks the rules, assigns it (`ASSIGNED`). A second accept
+   gets a 409.
+4. **Can't make it.** `POST /bookings/{id}/release` hands an accepted, not-yet-started
+   booking back to the board (`SEARCHING`).
+5. **Visit.** `check-in` → `IN_PROGRESS` (allowed from 2 hours before the start; geofenced
+   only when `VISIT_GEOFENCE_ENABLED`), `check-out` → `COMPLETED` with visit notes.
 
-`MatchingService` deliberately does not import `BookingService`'s reverse dependency — see the
-docstring in `booking_service.py` for why (avoiding a service-layer import cycle).
+Before acceptance a professional sees only the area, the time, their earning and the
+patient's notes; the street address and the patient's name/phone are shown once they accept.
+The patient sees the assigned professional, including their phone number (no in-app chat or
+call masking yet).
+
+The earlier timed-offer engine (3 offers per round, 60s TTL, Celery sweep widening the radius)
+was removed: it depended on Celery beat, which FastAPI Cloud can't run. `booking_offers`
+remains as an unused table.
 
 ---
 
-## 6. Request lifecycle example: booking → payment → dispatch → visit
+## 6. Request lifecycle example: booking → visit
 
 ```
-1. POST /api/v1/bookings/quote          → price preview (no rows written)
-2. POST /api/v1/bookings                → Booking(status=CREATED), price snapshot taken
-3. POST /api/v1/payments/orders          → Razorpay order created, Payment(status=PENDING)
-4. (mobile app opens Razorpay checkout, patient pays)
-5. POST /api/v1/payments/verify          → signature verified, Payment CAPTURED,
-                                            Booking → SEARCHING, dispatch starts
-6. (matching engine offers → professional accepts)  → Booking → ASSIGNED
-7. POST /api/v1/bookings/{id}/en-route   → Booking → EN_ROUTE   (professional side)
-8. POST /api/v1/bookings/{id}/check-in   → geofence-checked     → Booking → IN_PROGRESS
-9. POST /api/v1/bookings/{id}/check-out  → visit notes recorded → Booking → COMPLETED
-10. POST /api/v1/reviews                 → patient rates the professional
+Patient                                   Professional
+1. POST /bookings/quote    price preview
+2. POST /bookings          → SEARCHING
+                                          3. GET  /bookings/professional/requests
+                                          4. POST /bookings/{id}/accept      → ASSIGNED
+5. GET  /bookings/{id}     sees who's coming
+                                          6. POST /bookings/{id}/check-in    → IN_PROGRESS
+                                          7. POST /bookings/{id}/check-out   → COMPLETED
+8. POST /reviews           rates the visit
 ```
 
-Cancellation at any point before `COMPLETED` runs `BookingService.cancel`, which applies
-`CANCELLATION_FEE_PCT` if inside `FREE_CANCELLATION_WINDOW_MINUTES` of the scheduled start, then
-refunds the remainder via `PaymentService.refund`.
+A patient can cancel (`POST /bookings/{id}/cancel`) until the visit starts.
 
 ---
 
 ## 7. Auth model
 
-- **Patients & professionals**: phone OTP only (`POST /auth/otp/request` → `POST
-  /auth/otp/verify`). First successful verify with `full_name` + `role` creates the account.
-- **Admin/ops**: same JWT mechanism; accounts are provisioned directly (no public self-signup
-  endpoint for these roles).
-- **Tokens**: short-lived access token (30 min default) + longer refresh token (60 days),
-  HS256-signed, role embedded in the access token claim. `app/core/permissions.py` exposes
-  `require_patient` / `require_professional` / `require_admin` / `require_ops_or_admin` as
-  FastAPI dependencies layered on `get_current_user`.
-- Verified live: unauthenticated request → 401, wrong-role request → 403 (see the smoke test
-  transcript — this was exercised against a running server, not just read from the code).
+- **Patients & professionals**: email + password (`POST /auth/register`, `POST /auth/login`).
+  Registration takes `role: patient | professional`; a professional then completes
+  `POST /professionals/onboard` (profession, service area, services). Professionals are
+  approved automatically while `AUTO_APPROVE_PROFESSIONALS=true` (the prototype default).
+- **Admin/ops**: same JWT mechanism; accounts are provisioned with `scripts/create_admin.py`
+  (no public self-signup for these roles).
+- **Tokens**: access token (30 min) + rotating refresh token (7 days), HS256, role in the
+  access-token claim. Browser clients get both as httponly cookies on path `/api` and never
+  touch a token: `POST /auth/token/refresh` with no body reads the refresh cookie. Native
+  clients send `X-Client-Platform: ios|android`, get no cookies, and use the tokens in the
+  response body as `Authorization: Bearer`.
+- The web app reaches the API through its own `/api/*` rewrite (Vercel → FastAPI Cloud), so
+  the cookies are first-party and need no CORS or `SameSite=None`.
 
 ---
 
@@ -285,7 +294,7 @@ make migrate                         # uv run alembic upgrade head
 make seed                            # reference data: categories, services, specializations
 make dev                             # uvicorn --reload on :8000
 make worker                          # in another shell — Celery worker
-make beat                            # in another shell — Celery beat (offer-expiry sweep, payouts, reminders)
+make beat                            # in another shell — Celery beat (payouts, reminders)
 ```
 
 Interactive API docs at `/docs` (disabled automatically when `ENVIRONMENT=production`).
@@ -320,26 +329,27 @@ run (this bit us once while building this scaffold — see the fixture's docstri
 
 ## 9. Deploying
 
-See `DEPLOYMENT.md` for deploying to FastAPI Cloud — including the important caveat that it
-only runs the ASGI app, not the Celery worker/beat processes the dispatch engine depends on.
+See `DEPLOYMENT.md` for deploying to FastAPI Cloud. The booking flow needs no Celery worker;
+only visit reminders and weekly payout generation do.
 
 ---
 
 ## 10. What's production-ready vs. what's a deliberate stub
 
 Fully wired and verified against a live Postgres+PostGIS + Redis + running server:
-config/security/logging, all 30 ORM models, the initial migration, the OTP→JWT auth flow, role
+config/security/logging, all 30 ORM models, the initial migration, the email/password → JWT auth flow, role
 guards, the service catalogue, professional onboarding, and the full router surface (36
 endpoints resolving correctly).
 
 Deliberate stubs to swap in before go-live:
-- **SMS**: `ConsoleSMSProvider` logs OTPs instead of sending them — flip `SMS_PROVIDER=msg91`
-  and set `MSG91_*` env vars.
 - **Push**: `FCMPushClient` no-ops without `FCM_PROJECT_ID` set.
-- **Payments**: `RazorpayClient` needs real `RAZORPAY_KEY_ID`/`SECRET`/`WEBHOOK_SECRET`.
-- **Maps**: `GoogleMapsClient` (geocoding/ETA) needs `GOOGLE_MAPS_API_KEY`; not yet wired into
-  any endpoint — a natural next step is using it in `address_service` to geocode a text address
-  the patient types instead of requiring lat/lng from the app directly.
+- **Payments**: the prototype is pay-after-visit; online payment (`RazorpayClient`) needs real
+  `RAZORPAY_KEY_ID`/`SECRET`/`WEBHOOK_SECRET` and a step in the booking flow.
+- **Geocoding**: OpenStreetMap Nominatim (free, ~1 request/second) via `/geo/locate` and
+  `/geo/reverse`. Move to a paid geocoder (`GoogleMapsClient` is a starting point) before
+  real traffic.
+- **KYC review**: professionals are auto-approved (`AUTO_APPROVE_PROFESSIONALS`); turn it off
+  once ops reviews documents via the `/admin/professionals` endpoints.
 - **Payouts**: `PayoutService` computes and records payout rows; it does not yet call a bank
   transfer API (e.g. Razorpay Route/Payouts) to actually move money — `mark_paid` is a manual
   trigger point for that integration.

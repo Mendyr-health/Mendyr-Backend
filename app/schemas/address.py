@@ -30,6 +30,8 @@ class AddressUpdateIn(BaseModel):
     pincode: str | None = None
     location: GeoPoint | None = None
     is_default: bool | None = None
+    contact_name: str | None = None
+    contact_phone: str | None = None
     instructions_for_professional: str | None = None
 
 
@@ -43,5 +45,8 @@ class AddressRead(ORMModel):
     state: str
     pincode: str
     is_default: bool
+    contact_name: str | None
+    contact_phone: str | None
+    instructions_for_professional: str | None
     latitude: float
     longitude: float

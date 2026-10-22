@@ -17,7 +17,7 @@ from app.models.user import User
 from app.schemas.admin_analytics import DashboardOverviewOut
 from app.schemas.professional import ProfessionalRead, ProfessionalReviewDecisionIn
 from app.services.admin_analytics_service import AdminAnalyticsService
-from app.services.professional_service import ProfessionalService
+from app.services.professional_service import ProfessionalService, to_professional_read
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/professionals/pending", response_model=list[ProfessionalRead])
 async def list_pending_professionals(
     current_user: User = Depends(require_ops_or_admin), db: AsyncSession = Depends(get_db)
-) -> list:
+) -> list[ProfessionalRead]:
     result = await db.execute(
         select(ProfessionalProfile).where(
             ProfessionalProfile.verification_status.in_(
@@ -33,7 +33,7 @@ async def list_pending_professionals(
             )
         )
     )
-    return list(result.scalars().all())
+    return [to_professional_read(profile) for profile in result.scalars().all()]
 
 
 @router.post("/professionals/{professional_id}/review", response_model=ProfessionalRead)
@@ -43,9 +43,10 @@ async def review_professional(
     current_user: User = Depends(require_ops_or_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ProfessionalRead:
-    return await ProfessionalService(db).review_kyc(
+    profile = await ProfessionalService(db).review_kyc(
         professional_id, decision, reviewer_id=current_user.id
     )
+    return to_professional_read(profile)
 
 
 @router.get("/dashboard", response_model=DashboardOverviewOut)

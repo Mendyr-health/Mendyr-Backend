@@ -12,11 +12,11 @@ commands below are real.
 separate long-lived worker process. That matters a lot for Mendyr specifically:
 
 - ✅ The FastAPI app (`app/main.py:app`) — all 36 HTTP endpoints — deploys fine as-is.
-- ❌ **Celery `worker` and `beat` do not run on FastAPI Cloud.** That means the offer-expiry
-  sweep (`sweep_expired_offers`, every 15s — this is how a `SEARCHING` booking escalates to a
-  wider radius or fails over), weekly payout generation, and visit reminders **will not fire**
-  unless you run them somewhere else. See "Running Celery separately" below — don't skip it,
-  the booking dispatch flow silently stalls without it.
+- ⚠️ **Celery `worker` and `beat` do not run on FastAPI Cloud.** The booking flow doesn't
+  need them (matching is an open-request board — see ARCHITECTURE.md §5), but weekly payout
+  generation and visit reminders **will not fire** unless you run them somewhere else. See
+  "Running Celery separately" below. For the prototype, set `REDIS_ENABLED=false` and skip
+  Redis entirely.
 - FastAPI Cloud doesn't provide Postgres or Redis. You need external Postgres+PostGIS
   (**Supabase** — see `SETUP.md`'s "Option 0", already set up for this project) and an external
   Redis (e.g. [Upstash](https://upstash.com/), which has a free tier and works over TLS the same
@@ -136,7 +136,7 @@ FastAPI Cloud, since the worker needs to read/write the same booking rows and th
 queue the API enqueues work onto.
 
 If you'd rather not run an always-on worker at all, the periodic jobs
-(`sweep_expired_offers`/reminders/payouts — see `app/workers/tasks/`) could be converted into
+(reminders/payouts — see `app/workers/tasks/`) could be converted into
 protected HTTP endpoints triggered by an external scheduler (GitHub Actions cron, cron-job.org,
 Supabase's `pg_cron`) instead of Celery beat — that's a real code change, not just config, so
 it's not done here; ask if you want that built out.

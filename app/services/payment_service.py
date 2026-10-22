@@ -1,8 +1,8 @@
 """Razorpay order creation, payment verification/capture, webhook processing and refunds.
 
-On successful capture this kicks off dispatch (`MatchingService.start_dispatch`) — a booking
-only enters the SEARCHING queue once money has actually moved, so professionals are never
-offered a booking the patient hasn't paid for.
+Not part of the prototype's web flow: bookings are paid after the visit, outside the app, and
+are published to professionals as soon as they're created (see `booking_service`). Kept for
+when online payment returns — a CREATED booking still moves to SEARCHING on capture.
 """
 
 import json
@@ -19,7 +19,6 @@ from app.models.booking import Booking
 from app.models.payment import Payment
 from app.repositories.booking_repo import BookingRepository
 from app.services.booking_service import BookingService
-from app.services.matching_service import MatchingService
 
 
 class PaymentService:
@@ -27,7 +26,6 @@ class PaymentService:
         self.session = session
         self.bookings = BookingRepository(session)
         self.booking_service = BookingService(session)
-        self.matching_service = MatchingService(session)
         self.razorpay = RazorpayClient()
 
     async def create_order(
@@ -81,11 +79,11 @@ class PaymentService:
         if booking is None:
             raise NotFoundError("Booking not found.")
 
-        await self.booking_service.transition_status(
-            booking, BookingStatus.SEARCHING, reason="Payment captured"
-        )
+        if booking.status == BookingStatus.CREATED:
+            await self.booking_service.transition_status(
+                booking, BookingStatus.SEARCHING, reason="Payment captured"
+            )
         await self.session.flush()
-        await self.matching_service.start_dispatch(booking.id)
         return booking
 
     async def handle_webhook(self, *, payload: bytes, signature: str) -> None:
@@ -119,8 +117,6 @@ class PaymentService:
                 await self.booking_service.transition_status(
                     booking, BookingStatus.SEARCHING, reason="Payment captured (webhook)"
                 )
-                await self.session.flush()
-                await self.matching_service.start_dispatch(booking.id)
         elif event_type == "payment.failed":
             payment.status = PaymentStatus.FAILED
             payment.failure_reason = entity.get("error_description")

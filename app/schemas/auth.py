@@ -124,4 +124,6 @@ class TokenPair(BaseModel):
 
 
 class RefreshTokenIn(BaseModel):
-    refresh_token: str
+    # Optional: browser clients can't read their httponly refresh cookie, so they send no
+    # body and the endpoint falls back to the cookie instead.
+    refresh_token: str | None = None

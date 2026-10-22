@@ -370,19 +370,17 @@ curl http://localhost:8000/api/v1/services/categories
 
 Interactive docs: http://localhost:8000/docs
 
-Try the OTP login flow end-to-end:
+Try logging in. `uv run python -m scripts.seed_demo_data` creates a demo patient and
+professionals (password `Demo@12345`) near MG Road, Bengaluru:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/otp/request \
-  -H "Content-Type: application/json" \
-  -d '{"phone_number":"+919876500000","purpose":"login"}'
-# the OTP code is printed in the server console (ConsoleSMSProvider) since SMS_PROVIDER=console
-
-curl -X POST http://localhost:8000/api/v1/auth/otp/verify \
-  -H "Content-Type: application/json" \
-  -d '{"phone_number":"+919876500000","purpose":"login","code":"<code from console>","full_name":"Test Patient","role":"patient"}'
-# returns { "access_token": "...", "refresh_token": "..." }
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" -H "X-Client-Platform: android" \
+  -d '{"email":"asha.patel.demo@mendyr.app","password":"Demo@12345"}'
+# returns {"success": true, "data": {"access_token": "...", "refresh_token": "...", "user": {...}}}
 ```
+
+The web app (`mendyr-web` repo) runs against this server — see its README.
 
 (On native Windows PowerShell, `curl` is aliased to `Invoke-WebRequest` with different flags —
 either use `curl.exe` explicitly to get the real curl binary, or run these from WSL2/Git Bash.)

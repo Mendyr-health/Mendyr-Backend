@@ -4,6 +4,9 @@ Services raise `AppError` subclasses; handlers translate them into a
 consistent JSON error envelope so the mobile app can branch on `error.code`.
 """
 
+from collections.abc import Sequence
+from typing import Any
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -71,6 +74,17 @@ class PaymentError(AppError):
     code = "payment_error"
 
 
+def _format_validation_errors(errors: Sequence[Any]) -> str:
+    """`field: message` per error, readable enough to show a user as-is (the raw
+    `exc.errors()` repr is a Python list of dicts)."""
+    parts = []
+    for error in errors:
+        location = [str(p) for p in error.get("loc", ()) if p not in ("body", "query", "path")]
+        message = str(error.get("msg", "Invalid value")).removeprefix("Value error, ")
+        parts.append(f"{'.'.join(location)}: {message}" if location else message)
+    return "; ".join(parts) or "Invalid request."
+
+
 def _error_body(code: str, message: str) -> dict:
     # Matches the `{success, data, meta, error}` envelope `ResponseEnvelopeMiddleware` applies
     # to every success response — this is the failure-shaped member of that same envelope, so
@@ -102,7 +116,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            content=_error_body("validation_error", str(exc.errors())),
+            content=_error_body("validation_error", _format_validation_errors(exc.errors())),
         )
 
     @app.exception_handler(Exception)

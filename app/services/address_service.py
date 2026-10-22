@@ -4,11 +4,12 @@ import uuid
 
 from geoalchemy2.elements import WKTElement
 from geoalchemy2.shape import to_shape
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.models.address import Address
+from app.models.booking import Booking
 from app.schemas.address import AddressCreateIn, AddressRead, AddressUpdateIn
 
 
@@ -24,6 +25,9 @@ def _to_read_schema(address: Address) -> AddressRead:
         state=address.state,
         pincode=address.pincode,
         is_default=address.is_default,
+        contact_name=address.contact_name,
+        contact_phone=address.contact_phone,
+        instructions_for_professional=address.instructions_for_professional,
         latitude=point.y,
         longitude=point.x,
     )
@@ -98,5 +102,12 @@ class AddressService:
 
     async def delete(self, address_id: uuid.UUID, user_id: uuid.UUID) -> None:
         address = await self._get_owned(address_id, user_id)
+        # Bookings keep a foreign key to the address they were made for, so deleting a used
+        # one would fail at the database — say so instead of returning a 500.
+        in_use = await self.session.scalar(
+            select(exists().where(Booking.address_id == address_id))
+        )
+        if in_use:
+            raise ConflictError("This address has bookings, so it can't be deleted.")
         await self.session.delete(address)
         await self.session.flush()
