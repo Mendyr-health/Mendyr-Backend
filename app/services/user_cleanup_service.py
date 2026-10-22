@@ -193,13 +193,6 @@ class UserCleanupService:
         )
         ticket_ids = [r[0] for r in tickets_res.all()]
 
-        visit_ids: list[uuid.UUID] = []
-        if patient_booking_ids:
-            visits_res = await self.session.execute(
-                select(BookingVisit.id).where(BookingVisit.booking_id.in_(patient_booking_ids))
-            )
-            visit_ids = [r[0] for r in visits_res.all()]
-
         wallets_res = await self.session.execute(
             select(Wallet.id).where(Wallet.user_id.in_(user_ids))
         )
@@ -325,7 +318,7 @@ class UserCleanupService:
         # -------------------------------------------------------------------------
         # 5. Payments
         # -------------------------------------------------------------------------
-        pay_filter = [Payment.user_id.in_(user_ids)]
+        pay_filter = [Payment.patient_id.in_(user_ids)]
         if patient_booking_ids:
             pay_filter.append(Payment.booking_id.in_(patient_booking_ids))
         res = await self.session.execute(delete(Payment).where(or_(*pay_filter)))
@@ -335,14 +328,15 @@ class UserCleanupService:
         # -------------------------------------------------------------------------
         # 6. Booking visits and tracking pings
         # -------------------------------------------------------------------------
-        if visit_ids:
+        if patient_booking_ids:
             res = await self.session.execute(
-                delete(VisitTrackingPing).where(VisitTrackingPing.visit_id.in_(visit_ids))
+                delete(VisitTrackingPing).where(
+                    VisitTrackingPing.booking_id.in_(patient_booking_ids)
+                )
             )
             if res.rowcount:
                 counts["visit_tracking_pings"] = res.rowcount
 
-        if patient_booking_ids:
             res = await self.session.execute(
                 delete(BookingVisit).where(BookingVisit.booking_id.in_(patient_booking_ids))
             )
