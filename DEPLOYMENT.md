@@ -22,6 +22,13 @@ fastapi cloud env set NOMINATIM_USER_AGENT "Mendyr/0.1 (contact: <your email>)"
 # + the POSTGRES_* Supabase settings from step 2 below
 ```
 
+The Android/iOS app (`mendyr-web`'s Capacitor build) is different: it calls this API directly
+from its own origins, so allow those (the website still needs none):
+
+```bash
+fastapi cloud env set CORS_ORIGINS '["https://localhost","capacitor://localhost"]'
+```
+
 Then `fastapi deploy`, and set `BACKEND_URL=https://<your-app>.fastapicloud.dev` on the Vercel
 project. Requests arrive with the API's own hostname, so `ALLOWED_HOSTS` can stay `["*"]` or be
 set to `["<your-app>.fastapicloud.dev"]`. No migration is needed for the MVP branch; seed demo
