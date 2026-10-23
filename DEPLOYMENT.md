@@ -23,7 +23,8 @@ fastapi cloud env set NOMINATIM_USER_AGENT "Mendyr/0.1 (contact: <your email>)"
 ```
 
 The Android/iOS app (`mendyr-web`'s Capacitor build) is different: it calls this API directly
-from its own origins, so allow those (the website still needs none):
+from its own origins, so `CORS_ORIGINS` must include them (the website still needs none). The
+command replaces the whole list, so add any other origins you already allow to it:
 
 ```bash
 fastapi cloud env set CORS_ORIGINS '["https://localhost","capacitor://localhost"]'
