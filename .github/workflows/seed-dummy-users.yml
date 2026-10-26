@@ -1,0 +1,47 @@
+name: Seed dummy users
+
+# Manual-only, like the other data-mutating workflows here: it writes to the shared database,
+# so it must never fire off a push. Takes no inputs — just run it.
+#
+# Creates the test dataset described in scripts/seed_dummy_users.py — 18 approved, online
+# professionals (three of every profession) and 12 patients with addresses, all around
+# Bengaluru, so any patient's booking reaches nearby professionals' request lists.
+#
+# Idempotent (accounts are matched by email), so re-running it is safe. Every account uses
+# the `*.dummy@mendyr.app` suffix and the demo password from scripts/seed_demo_data.py (not a
+# secret) — the script prints every credential to this run's log.
+on:
+  workflow_dispatch:
+
+jobs:
+  seed-dummy-users:
+    runs-on: ubuntu-latest
+    env:
+      # Settings() validates every field eagerly on import, including SECRET_KEY, which these
+      # scripts never use — same reasoning as migrate.yml.
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+      POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_SSL_REQUIRED: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # The professionals are opted into catalogue services, so the catalogue has to exist
+      # first. Idempotent (matched by slug), so a no-op on an already-seeded database.
+      - name: Seed service catalogue
+        run: uv run python -m scripts.seed
+
+      - name: Seed dummy users
+        run: uv run python -m scripts.seed_dummy_users
