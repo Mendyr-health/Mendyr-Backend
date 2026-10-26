@@ -89,31 +89,77 @@ nursing. Patients 03, 05, 07, 10 and 11 are younger, which suits baby care and p
 
 ---
 
-## Who sees whose bookings
+## Patient ↔ professional mapping
 
-A booking reaches every professional of the right profession whose 15 km radius covers the
-patient's address. Central patients reach all three; patients on the edge of the city reach
-fewer:
+A booking reaches every professional **of the booked service's profession** whose 15 km radius
+covers the patient's home address. The tables below show those pairs. Distances are straight-line
+distances computed by PostGIS from the seeded locations, the same check the app uses.
 
-| Patient (area) | Nurses | Physios | Caretakers | Baby care | Lab techs |
-|---|---|---|---|---|---|
-| `patient01` (Whitefield) | 1 | 1 | 1 | 2 | 1 |
-| `patient02` (Marathahalli) | 3 | 2 | 3 | 3 | 3 |
-| `patient03` (Electronic City) | 2 | 2 | 2 | 1 | 2 |
-| `patient04` (Yelahanka) | 1 | 1 | 1 | 2 | 1 |
-| `patient05` (Bellandur) | 3 | 3 | 3 | 3 | 3 |
-| `patient06` (Vijayanagar) | 3 | 3 | 3 | 3 | 3 |
-| `patient07` (Banaswadi) | 3 | 3 | 3 | 3 | 3 |
-| `patient08` (Yeshwanthpur) | 3 | 3 | 3 | 2 | 2 |
-| `patient09` (Shivajinagar) | 3 | 3 | 3 | 3 | 3 |
-| `patient10` (Sarjapur Road) | 2 | 2 | 2 | 3 | 2 |
-| `patient11` (RR Nagar) | 3 | 3 | 3 | 2 | 3 |
-| `patient12` (Cooke Town) | 3 | 3 | 3 | 3 | 3 |
+Doctors appear for completeness, but they get no requests until the catalogue has a doctor
+service.
 
-- **Testing one professional alone:** use `patient01` or `patient04`. Only one professional of
-  most professions gets the request, so you know exactly who to log in as.
-- **Testing "first to accept wins":** use a central patient (`patient09`, `patient12`). All
-  three professionals of each profession get the request.
+### Which professionals each patient can book
+
+Professionals whose 15 km radius covers the patient's home, nearest first, with the distance.
+
+| Patient (area) | Nurse | Physiotherapist | Caretaker | Baby care | Lab technician | Doctor |
+|---|---|---|---|---|---|---|
+| `patient01` (Whitefield) | `nurse02` 11.8 km | `physio02` 14.1 km | `caretaker02` 12.1 km | `babycare02` 13.2 km<br>`babycare01` 13.6 km | `labtech02` 12.9 km | `doctor02` 10.9 km<br>`doctor01` 14.8 km |
+| `patient02` (Marathahalli) | `nurse02` 6.3 km<br>`nurse03` 11.9 km<br>`nurse01` 13.8 km | `physio02` 8.3 km<br>`physio03` 13.5 km | `caretaker02` 6.4 km<br>`caretaker03` 10.6 km<br>`caretaker01` 13 km | `babycare02` 7.9 km<br>`babycare01` 9.8 km<br>`babycare03` 10.2 km | `labtech02` 7.6 km<br>`labtech03` 13.6 km<br>`labtech01` 13.7 km | `doctor02` 5.1 km<br>`doctor01` 9.8 km |
+| `patient03` (Electronic City) | `nurse03` 11.4 km<br>`nurse02` 14.2 km | `physio03` 10.5 km<br>`physio02` 10.7 km | `caretaker03` 9.6 km<br>`caretaker02` 13 km | `babycare03` 7.2 km | `labtech02` 7.5 km<br>`labtech03` 14.3 km | `doctor02` 12.7 km |
+| `patient04` (Yelahanka) | `nurse01` 7.2 km | `physio01` 11.3 km | `caretaker01` 8.8 km | `babycare01` 9.3 km<br>`babycare02` 13.6 km | `labtech01` 10.5 km | `doctor01` 11.5 km<br>`doctor03` 13 km |
+| `patient05` (Bellandur) | `nurse02` 6.1 km<br>`nurse03` 9.2 km<br>`nurse01` 14.6 km | `physio02` 5.9 km<br>`physio03` 10.4 km<br>`physio01` 14.8 km | `caretaker02` 5.5 km<br>`caretaker03` 7.6 km<br>`caretaker01` 13.5 km | `babycare03` 6.7 km<br>`babycare02` 7.8 km<br>`babycare01` 11.6 km | `labtech02` 4 km<br>`labtech03` 11.5 km<br>`labtech01` 13.5 km | `doctor02` 4.5 km<br>`doctor01` 10.1 km |
+| `patient06` (Vijayanagar) | `nurse03` 8.4 km<br>`nurse01` 9.9 km<br>`nurse02` 11.8 km | `physio01` 4.8 km<br>`physio03` 9.2 km<br>`physio02` 10.7 km | `caretaker01` 8.8 km<br>`caretaker03` 10.4 km<br>`caretaker02` 11.5 km | `babycare02` 10.4 km<br>`babycare03` 12.8 km<br>`babycare01` 13.2 km | `labtech03` 5.5 km<br>`labtech01` 6.5 km<br>`labtech02` 14.1 km | `doctor03` 3 km<br>`doctor01` 9.6 km<br>`doctor02` 12.8 km |
+| `patient07` (Banaswadi) | `nurse02` 4.8 km<br>`nurse01` 6.4 km<br>`nurse03` 11.7 km | `physio02` 9.2 km<br>`physio01` 9.6 km<br>`physio03` 13.9 km | `caretaker02` 6 km<br>`caretaker01` 6.1 km<br>`caretaker03` 11.7 km | `babycare01` 2 km<br>`babycare02` 4.4 km<br>`babycare03` 13 km | `labtech01` 7.7 km<br>`labtech02` 11.3 km<br>`labtech03` 11.6 km | `doctor01` 4.1 km<br>`doctor02` 6 km<br>`doctor03` 11.1 km |
+| `patient08` (Yeshwanthpur) | `nurse01` 6.2 km<br>`nurse02` 12.6 km<br>`nurse03` 12.9 km | `physio01` 3.9 km<br>`physio02` 13.8 km<br>`physio03` 14.4 km | `caretaker01` 6.1 km<br>`caretaker02` 13.1 km<br>`caretaker03` 14.5 km | `babycare01` 10.8 km<br>`babycare02` 10.9 km | `labtech01` 5.1 km<br>`labtech03` 10.2 km | `doctor03` 4.4 km<br>`doctor01` 9 km<br>`doctor02` 14.1 km |
+| `patient09` (Shivajinagar) | `nurse02` 4.1 km<br>`nurse01` 5.6 km<br>`nurse03` 6.8 km | `physio01` 4.9 km<br>`physio02` 5.9 km<br>`physio03` 9 km | `caretaker01` 4.1 km<br>`caretaker02` 4.5 km<br>`caretaker03` 7.7 km | `babycare02` 2.5 km<br>`babycare01` 6 km<br>`babycare03` 9.7 km | `labtech01` 3.5 km<br>`labtech03` 5.9 km<br>`labtech02` 9.4 km | `doctor01` 1.9 km<br>`doctor02` 5.6 km<br>`doctor03` 5.8 km |
+| `patient10` (Sarjapur Road) | `nurse02` 8.5 km<br>`nurse03` 10.2 km | `physio02` 7.3 km<br>`physio03` 11 km | `caretaker02` 7.7 km<br>`caretaker03` 8.4 km | `babycare03` 6.8 km<br>`babycare02` 10.2 km<br>`babycare01` 14 km | `labtech02` 4.3 km<br>`labtech03` 12.8 km | `doctor02` 6.8 km<br>`doctor01` 12.4 km |
+| `patient11` (RR Nagar) | `nurse03` 8.5 km<br>`nurse02` 14.5 km<br>`nurse01` 14.9 km | `physio03` 8 km<br>`physio01` 9.9 km<br>`physio02` 11.9 km | `caretaker03` 10.3 km<br>`caretaker01` 13.6 km<br>`caretaker02` 13.9 km | `babycare03` 12.3 km<br>`babycare02` 13.7 km | `labtech03` 6.5 km<br>`labtech01` 11.3 km<br>`labtech02` 14.4 km | `doctor03` 8.1 km<br>`doctor01` 13.5 km |
+| `patient12` (Cooke Town) | `nurse02` 3.2 km<br>`nurse01` 5.4 km<br>`nurse03` 8.9 km | `physio01` 6.9 km<br>`physio02` 7 km<br>`physio03` 11.1 km | `caretaker01` 4.3 km<br>`caretaker02` 4.3 km<br>`caretaker03` 9.2 km | `babycare02` 1.8 km<br>`babycare01` 3.6 km<br>`babycare03` 10.8 km | `labtech01` 5.2 km<br>`labtech03` 8.5 km<br>`labtech02` 9.8 km | `doctor01` 1.2 km<br>`doctor02` 4.8 km<br>`doctor03` 8.2 km |
+
+### How many patients each professional covers
+
+| Professional | Profession | Area | Patients in range | Which patients |
+|---|---|---|---|---|
+| `nurse01` | Nurse | Hebbal | **9** / 12 | 02, 04, 05, 06, 07, 08, 09, 11, 12 |
+| `nurse02` | Nurse | Indiranagar | **11** / 12 | 01, 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `nurse03` | Nurse | Jayanagar | **10** / 12 | 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `physio01` | Physiotherapist | Malleshwaram | **8** / 12 | 04, 05, 06, 07, 08, 09, 11, 12 |
+| `physio02` | Physiotherapist | Koramangala | **11** / 12 | 01, 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `physio03` | Physiotherapist | JP Nagar | **10** / 12 | 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `caretaker01` | Caretaker | RT Nagar | **9** / 12 | 02, 04, 05, 06, 07, 08, 09, 11, 12 |
+| `caretaker02` | Caretaker | Domlur | **11** / 12 | 01, 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `caretaker03` | Caretaker | BTM Layout | **10** / 12 | 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `babycare01` | Baby care | Kalyan Nagar | **10** / 12 | 01, 02, 04, 05, 06, 07, 08, 09, 10, 12 |
+| `babycare02` | Baby care | Ulsoor | **11** / 12 | 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `babycare03` | Baby care | Bommanahalli | **9** / 12 | 02, 03, 05, 06, 07, 09, 10, 11, 12 |
+| `labtech01` | Lab technician | Sadashivanagar | **9** / 12 | 02, 04, 05, 06, 07, 08, 09, 11, 12 |
+| `labtech02` | Lab technician | HSR Layout | **10** / 12 | 01, 02, 03, 05, 06, 07, 09, 10, 11, 12 |
+| `labtech03` | Lab technician | Basavanagudi | **10** / 12 | 02, 03, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `doctor01` | Doctor | Frazer Town | **11** / 12 | 01, 02, 04, 05, 06, 07, 08, 09, 10, 11, 12 |
+| `doctor02` | Doctor | Old Airport Road | **10** / 12 | 01, 02, 03, 05, 06, 07, 08, 09, 10, 12 |
+| `doctor03` | Doctor | Rajajinagar | **7** / 12 | 04, 06, 07, 08, 09, 11, 12 |
+
+### Per profession
+
+| Profession | Professionals | Patients covered | Professionals reachable per patient | Patients with only one choice |
+|---|---|---|---|---|
+| Nurse | 3 | **12** / 12 | 1–3 (avg 2.5) | `patient01`, `patient04` |
+| Physiotherapist | 3 | **12** / 12 | 1–3 (avg 2.4) | `patient01`, `patient04` |
+| Caretaker | 3 | **12** / 12 | 1–3 (avg 2.5) | `patient01`, `patient04` |
+| Baby care | 3 | **12** / 12 | 1–3 (avg 2.5) | `patient03` |
+| Lab technician | 3 | **12** / 12 | 1–3 (avg 2.4) | `patient01`, `patient04` |
+| Doctor | 3 | **12** / 12 | 1–3 (avg 2.3) | `patient03` |
+
+**Choosing who to test with:**
+- **Exactly one professional should get the request:** use `patient01` (Whitefield) or
+  `patient04` (Yelahanka). For most professions there's a single professional in range, so you
+  know who to log in as. `patient03` (Electronic City) works the same way for baby care.
+- **"First to accept wins" (several professionals get the same request):** use a central
+  patient, such as `patient09` (Shivajinagar) or `patient12` (Cooke Town). All three
+  professionals of every profession are in range.
+- **The widest reach:** `nurse02`, `physio02`, `caretaker02`, `babycare02` and `doctor01` each
+  cover 11 of the 12 patients.
 
 ---
 
