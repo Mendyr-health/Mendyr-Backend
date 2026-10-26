@@ -89,6 +89,99 @@ async def _get_or_create_user(
     return user
 
 
+async def _ensure_address(
+    session, user: User, *, line1: str, city: str, state: str, pincode: str, lat: float, lng: float
+) -> None:
+    """Give `user` a default home address at (lat, lng), unless they already have one."""
+    existing = (
+        await session.execute(select(Address).where(Address.user_id == user.id).limit(1))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+    session.add(
+        Address(
+            user_id=user.id,
+            label="home",
+            line1=line1,
+            city=city,
+            state=state,
+            pincode=pincode,
+            country="IN",
+            location=_point(lat, lng),
+            is_default=True,
+            contact_name=user.full_name,
+            contact_phone=user.phone_number,
+        )
+    )
+
+
+async def _ensure_professional(
+    session,
+    user: User,
+    *,
+    kind: ProfessionalType,
+    years_of_experience: int,
+    languages: list[str],
+    lat: float,
+    lng: float,
+    timings: list[tuple[int, time, time]] | None,
+    services: list[Service],
+) -> ProfessionalProfile:
+    """Make `user` an approved, online professional at (lat, lng), opted into every catalogue
+    service for their profession. An existing profile is kept as-is (a demo run may have
+    edited it through the app); only missing service opt-ins are added."""
+    profile = (
+        await session.execute(
+            select(ProfessionalProfile).where(ProfessionalProfile.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        profile = ProfessionalProfile(
+            user_id=user.id,
+            professional_type=kind,
+            years_of_experience=years_of_experience,
+            bio=f"{user.full_name} is a registered {kind.value.replace('_', ' ')} with "
+            f"{years_of_experience} years of home-care experience.",
+            languages_spoken=languages,
+            verification_status=VerificationStatus.APPROVED,
+            verified_at=datetime.now(UTC),
+            availability_status=AvailabilityStatus.ONLINE,
+            current_location=_point(lat, lng),
+            location_updated_at=datetime.now(UTC),
+            base_service_radius_km=SERVICE_RADIUS_KM,
+            is_accepting_bookings=True,
+        )
+        session.add(profile)
+        await session.flush()
+        for day, start, end in timings or []:
+            session.add(
+                ProfessionalAvailabilitySlot(
+                    professional_id=profile.id,
+                    day_of_week=day,
+                    start_time=start,
+                    end_time=end,
+                )
+            )
+
+    for service in [s for s in services if s.required_professional_type == kind]:
+        optin = (
+            await session.execute(
+                select(ProfessionalServiceOptIn).where(
+                    ProfessionalServiceOptIn.professional_id == profile.id,
+                    ProfessionalServiceOptIn.service_id == service.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if optin is None:
+            # No price_override: bookings are priced from the catalogue for now.
+            session.add(
+                ProfessionalServiceOptIn(
+                    professional_id=profile.id, service_id=service.id, is_active=True
+                )
+            )
+    return profile
+
+
 async def seed() -> None:
     async with AsyncSessionLocal() as session:
         # ── Patient ──────────────────────────────────────────────────────
@@ -103,26 +196,17 @@ async def seed() -> None:
         )
         await WalletService(session).get_or_create_wallet(patient.id)
 
-        existing_address = (
-            await session.execute(select(Address).where(Address.user_id == patient.id))
-        ).scalar_one_or_none()
-        if existing_address is None:
-            lat, lng = PATIENT_LOCATION
-            session.add(
-                Address(
-                    user_id=patient.id,
-                    label="home",
-                    line1="221B, MG Road",
-                    city="Bengaluru",
-                    state="Karnataka",
-                    pincode="560001",
-                    country="IN",
-                    location=_point(lat, lng),
-                    is_default=True,
-                    contact_name=patient.full_name,
-                    contact_phone=patient.phone_number,
-                )
-            )
+        lat, lng = PATIENT_LOCATION
+        await _ensure_address(
+            session,
+            patient,
+            line1="221B, MG Road",
+            city="Bengaluru",
+            state="Karnataka",
+            pincode="560001",
+            lat=lat,
+            lng=lng,
+        )
 
         # ── Nurses ───────────────────────────────────────────────────────
         services = (await session.execute(select(Service))).scalars().all()
@@ -151,48 +235,17 @@ async def seed() -> None:
             )
             await WalletService(session).get_or_create_wallet(nurse_user.id)
 
-            profile = (
-                await session.execute(
-                    select(ProfessionalProfile).where(ProfessionalProfile.user_id == nurse_user.id)
-                )
-            ).scalar_one_or_none()
-            if profile is None:
-                profile = ProfessionalProfile(
-                    user_id=nurse_user.id,
-                    professional_type=ProfessionalType.NURSE,
-                    years_of_experience=3 + idx,
-                    bio=f"{name} is a registered nurse with {3 + idx} years of home-care "
-                    "experience.",
-                    verification_status=VerificationStatus.APPROVED,
-                    verified_at=datetime.now(UTC),
-                    availability_status=AvailabilityStatus.ONLINE,
-                    current_location=_point(lat, lng),
-                    location_updated_at=datetime.now(UTC),
-                    is_accepting_bookings=True,
-                )
-                session.add(profile)
-                await session.flush()
-
-            for service in nurse_services:
-                optin = (
-                    await session.execute(
-                        select(ProfessionalServiceOptIn).where(
-                            ProfessionalServiceOptIn.professional_id == profile.id,
-                            ProfessionalServiceOptIn.service_id == service.id,
-                        )
-                    )
-                ).scalar_one_or_none()
-                if optin is None:
-                    # Second nurse charges a bit above catalogue rate, to show price_override.
-                    override = float(service.base_price) * 1.15 if idx == 2 else None
-                    session.add(
-                        ProfessionalServiceOptIn(
-                            professional_id=profile.id,
-                            service_id=service.id,
-                            price_override=override,
-                            is_active=True,
-                        )
-                    )
+            await _ensure_professional(
+                session,
+                pro_user,
+                kind=kind,
+                years_of_experience=3 + idx,
+                languages=["English", "Hindi", "Kannada"],
+                lat=lat,
+                lng=lng,
+                timings=timings,
+                services=services,
+            )
 
             credentials.append((email, DEMO_PASSWORD, "nurse"))
 
