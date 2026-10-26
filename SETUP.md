@@ -68,6 +68,9 @@ make migrate     # uv run alembic upgrade head
 make seed        # uv run python -m scripts.seed
 ```
 
+For ready-made test accounts (18 professionals and 12 patients around Bengaluru), run
+`make seed-dummy` — see [DUMMY_USERS.md](DUMMY_USERS.md).
+
 Redis is used for OTP resend-cooldown and rate limiting — install it via Homebrew (macOS) or run
 it under WSL2/Docker (Windows), as shown in the options below, point `REDIS_URL` at a managed
 Redis (Upstash, etc.), **or just skip it entirely**: set `REDIS_ENABLED=false` in `.env` and the
