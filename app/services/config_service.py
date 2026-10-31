@@ -49,6 +49,33 @@ class ConfigService:
         await self.session.flush()
         return config
 
+    async def toggle_active(self, config_id: uuid.UUID) -> Config:
+        config = await self.configs.get(config_id)
+        if config is None:
+            raise NotFoundError("Config not found.")
+        config.is_active = not config.is_active
+        await self.session.flush()
+        return config
+
+    async def get_active_dict(self) -> dict[str, object]:
+        configs = await self.configs.list_all()
+        return {c.key: c.value for c in configs if c.is_active}
+
+    async def summary(self) -> dict[str, object]:
+        configs = await self.configs.list_all()
+        total = len(configs)
+        active = sum(1 for c in configs if c.is_active)
+        categories: dict[str, int] = {}
+        for c in configs:
+            domain = c.key.split(".")[0] if "." in c.key else "general"
+            categories[domain] = categories.get(domain, 0) + 1
+        return {
+            "total_configs": total,
+            "active_configs": active,
+            "inactive_configs": total - active,
+            "categories": categories,
+        }
+
     async def delete(self, config_id: uuid.UUID) -> None:
         config = await self.configs.get(config_id)
         if config is None:
