@@ -21,6 +21,7 @@ class BookingCreateIn(BaseModel):
     total_visits: int | None = Field(default=None, ge=1, le=90)
     visits_per_day: int = Field(default=1, ge=1, le=4)
     preferred_professional_id: uuid.UUID | None = None
+    prescription_url: str | None = None
 
 
 class BookingQuoteIn(BaseModel):
@@ -71,6 +72,7 @@ class BookingRead(ORMModel):
     tax_amount: float
     total_amount: float
     patient_notes: str | None = None
+    prescription_url: str | None = None
     cancellation_reason: str | None = None
     professional: AssignedProfessionalRead | None = None
     # The professional's notes from check-out, shown to the patient once the visit is done.
@@ -124,6 +126,7 @@ class ProfessionalBookingRead(BaseModel):
     patient_name: str
     patient_phone: str
     patient_notes: str | None
+    prescription_url: str | None = None
     earning_amount: float
     started_at: datetime | None
     completed_at: datetime | None

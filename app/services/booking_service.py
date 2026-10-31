@@ -196,6 +196,9 @@ class BookingService:
             professional_payout_amount=breakdown.professional_payout_amount,
             commission_pct=breakdown.commission_pct,
             patient_notes=payload.patient_notes,
+            extended_attributes={"prescription_url": payload.prescription_url}
+            if payload.prescription_url
+            else None,
         )
         self.bookings.add(booking)
         await self.session.flush()
@@ -342,6 +345,8 @@ def to_patient_read(row: PatientBookingRow, *, review_rating: int | None) -> Boo
     read.professional = assigned
     read.visit_summary_notes = visit.visit_summary_notes if visit else None
     read.review_rating = review_rating
+    if booking.extended_attributes and isinstance(booking.extended_attributes, dict):
+        read.prescription_url = booking.extended_attributes.get("prescription_url")
     return read
 
 
@@ -366,6 +371,11 @@ def to_professional_read(row: ProfessionalBookingRow) -> ProfessionalBookingRead
         patient_phone=(address.contact_phone if address and address.contact_phone else None)
         or patient.phone_number,
         patient_notes=booking.patient_notes,
+        prescription_url=(
+            booking.extended_attributes.get("prescription_url")
+            if (booking.extended_attributes and isinstance(booking.extended_attributes, dict))
+            else None
+        ),
         earning_amount=float(booking.professional_payout_amount),
         started_at=visit.checked_in_at if visit else None,
         completed_at=visit.checked_out_at if visit else None,

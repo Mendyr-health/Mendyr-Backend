@@ -1,13 +1,15 @@
 """Booking lifecycle. Patient side: quote, create, list, get, cancel. Professional side: open
 requests near them, accept, release, and their assigned bookings (visit progress lives in
 `visits.py`). See `booking_service` for how matching works."""
+import base64
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_professional, get_current_user, pagination_params
-from app.core.exceptions import NotFoundError
+from app.core.config import settings
+from app.core.exceptions import NotFoundError, ValidationAppError
 from app.core.permissions import require_patient
 from app.db.session import get_db
 from app.models.address import Address
@@ -45,6 +47,52 @@ async def quote_booking(
     service = await CatalogService(db).get_service(payload.service_id)
     breakdown = await BookingService(db).quote(service=service, coupon_code=payload.coupon_code)
     return BookingQuoteOut(**breakdown.__dict__)
+
+
+@router.post("/prescriptions/upload")
+async def upload_prescription(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_patient),
+) -> dict:
+    """Upload prescription image or PDF document. Returns file_url to attach to booking."""
+    content_type = file.content_type or "application/octet-stream"
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "jpg"
+    allowed = {"jpg", "jpeg", "png", "webp", "pdf", "heic", "heif"}
+    if ext not in allowed and not content_type.startswith(("image/", "application/pdf")):
+        raise ValidationAppError("Allowed formats are JPG, PNG, WEBP, and PDF.")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise ValidationAppError("File size cannot exceed 10MB.")
+
+    # Upload to S3 if configured
+    if settings.S3_BUCKET and settings.AWS_ACCESS_KEY_ID:
+        try:
+            from app.services.storage_service import StorageService
+
+            s3 = StorageService().s3
+            key = s3.build_object_key(
+                folder=f"prescriptions/{current_user.id}", filename=file.filename or f"rx.{ext}"
+            )
+            s3._client.put_object(
+                Bucket=settings.S3_BUCKET,
+                Key=key,
+                Body=contents,
+                ContentType=content_type,
+            )
+            file_url = (
+                s3.presign_download(key)
+                if not settings.S3_ENDPOINT_URL
+                else s3.public_url(key)
+            )
+            return {"file_url": file_url, "filename": file.filename}
+        except Exception:
+            pass
+
+    # Resilient fallback: base64 Data URL format works everywhere
+    b64 = base64.b64encode(contents).decode("utf-8")
+    data_url = f"data:{content_type};base64,{b64}"
+    return {"file_url": data_url, "filename": file.filename}
 
 
 @router.post("", response_model=BookingRead)
