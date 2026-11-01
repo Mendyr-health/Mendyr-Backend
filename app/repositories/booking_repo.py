@@ -1,14 +1,14 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from geoalchemy2.functions import ST_Distance, ST_DWithin, ST_GeogFromText
 from geoalchemy2.shape import to_shape
-from sqlalchemy import Select, exists, select
+from sqlalchemy import Select, exists, or_, select
 from sqlalchemy.orm import aliased
 
-from app.core.constants import BookingStatus
+from app.core.constants import BookingStatus, Gender
 from app.models.address import Address
-from app.models.booking import Booking, BookingVisit
+from app.models.booking import Booking, BookingStatusHistory, BookingVisit
 from app.models.professional import ProfessionalProfile
 from app.models.review import Review
 from app.models.service import ProfessionalService as ProfessionalServiceOptIn
@@ -20,6 +20,29 @@ from app.repositories.professional_repo import available_at, utc_param
 PatientBookingRow = tuple[Booking, ProfessionalProfile | None, User | None, BookingVisit | None]
 ProfessionalBookingRow = tuple[Booking, User, Address | None, BookingVisit | None]
 OpenRequestRow = tuple[Booking, Address | None, float]
+
+# A professional holding a booking in one of these is busy for its time window.
+COMMITTED_STATUSES = (
+    BookingStatus.ASSIGNED,
+    BookingStatus.CONFIRMED,
+    BookingStatus.EN_ROUTE,
+    BookingStatus.IN_PROGRESS,
+)
+
+
+def busy_during(
+    professional_id: uuid.UUID, booking: type[Booking] | Booking, buffer: timedelta
+) -> object:
+    """SQL condition: the professional already has a committed visit overlapping `booking`'s
+    window, padded by `buffer` on both sides for travel between homes."""
+    other = aliased(Booking)
+    return exists().where(
+        other.professional_id == professional_id,
+        other.status.in_(COMMITTED_STATUSES),
+        other.id != booking.id,
+        other.scheduled_start_at < booking.scheduled_end_at + buffer,
+        other.scheduled_end_at + buffer > booking.scheduled_start_at,
+    )
 
 
 class BookingRepository(BaseRepository[Booking]):
@@ -69,6 +92,24 @@ class BookingRepository(BaseRepository[Booking]):
         row = result.one_or_none()
         return (row[0], row[1], row[2], row[3]) if row else None
 
+    async def list_status_history(self, booking_id: uuid.UUID) -> list[BookingStatusHistory]:
+        result = await self.session.execute(
+            select(BookingStatusHistory)
+            .where(BookingStatusHistory.booking_id == booking_id)
+            .order_by(BookingStatusHistory.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_stale_searching(self, *, now: datetime, limit: int = 200) -> list[Booking]:
+        """Requests nobody accepted before their start time — they can't happen any more."""
+        result = await self.session.execute(
+            select(Booking)
+            .where(Booking.status == BookingStatus.SEARCHING, Booking.scheduled_start_at < now)
+            .with_for_update(skip_locked=True)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_review_rating(self, booking_id: uuid.UUID) -> int | None:
         result = await self.session.execute(
             select(Review.rating).where(Review.booking_id == booking_id)
@@ -104,16 +145,26 @@ class BookingRepository(BaseRepository[Booking]):
         row = result.one_or_none()
         return (row[0], row[1], row[2], row[3]) if row else None
 
-    def open_requests_query(self, professional: ProfessionalProfile, *, now: datetime) -> Select:
+    def open_requests_query(
+        self,
+        professional: ProfessionalProfile,
+        *,
+        now: datetime,
+        gender: Gender,
+        travel_buffer: timedelta,
+    ) -> Select:
         """Bookings still looking for a professional that `professional` may accept — the
         mirror image of `ProfessionalRepository.find_nearby_candidates`:
         - still SEARCHING and not yet started
         - for their profession, and a service they've opted into
         - inside their own travel radius
         - starting inside their weekly timings (see `available_at`)
+        - not clashing with a visit they've already taken (plus `travel_buffer` either side)
+        - no gender preference, or one matching theirs
         Whether the professional is approved/accepting is checked by the caller, once,
         rather than per row. Requires `professional.current_location` to be set.
         """
+        preferred_gender = Booking.extended_attributes["preferred_gender"].astext
         location = ST_GeogFromText(to_shape(professional.current_location).wkt)
         opted_in = exists().where(
             ProfessionalServiceOptIn.professional_id == professional.id,
@@ -138,23 +189,41 @@ class BookingRepository(BaseRepository[Booking]):
                     float(professional.base_service_radius_km) * 1000,
                 ),
                 available_at(professional.id, Booking.scheduled_start_at),
+                ~busy_during(professional.id, Booking, travel_buffer),
+                or_(preferred_gender.is_(None), preferred_gender == gender.value),
             )
         )
 
     async def list_open_requests(
-        self, professional: ProfessionalProfile, *, now: datetime, limit: int = 50
+        self,
+        professional: ProfessionalProfile,
+        *,
+        now: datetime,
+        gender: Gender,
+        travel_buffer: timedelta,
+        limit: int = 50,
     ) -> list[OpenRequestRow]:
         result = await self.session.execute(
-            self.open_requests_query(professional, now=now)
+            self.open_requests_query(
+                professional, now=now, gender=gender, travel_buffer=travel_buffer
+            )
             .order_by(Booking.scheduled_start_at.asc())
             .limit(limit)
         )
         return [(row[0], row[1], float(row[2])) for row in result.all()]
 
     async def is_open_request_for(
-        self, booking_id: uuid.UUID, professional: ProfessionalProfile, *, now: datetime
+        self,
+        booking_id: uuid.UUID,
+        professional: ProfessionalProfile,
+        *,
+        now: datetime,
+        gender: Gender,
+        travel_buffer: timedelta,
     ) -> bool:
         result = await self.session.execute(
-            self.open_requests_query(professional, now=now).where(Booking.id == booking_id)
+            self.open_requests_query(
+                professional, now=now, gender=gender, travel_buffer=travel_buffer
+            ).where(Booking.id == booking_id)
         )
         return result.first() is not None

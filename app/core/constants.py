@@ -12,6 +12,12 @@ class UserRole(StrEnum):
     PROFESSIONAL = "professional"
     ADMIN = "admin"
     OPS = "ops"  # internal support / dispatch staff
+    # Full access to the config portal. Already a label of the `user_role` Postgres enum.
+    SUPER_ADMIN = "super_admin"
+
+
+# Roles allowed into the config portal.
+ADMIN_ROLES = frozenset({UserRole.ADMIN, UserRole.SUPER_ADMIN})
 
 
 class UserStatus(StrEnum):

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -56,10 +57,22 @@ class ProfessionalDocumentRead(ORMModel):
 
 
 class ProfessionalReviewDecisionIn(BaseModel):
-    """Used by ops/admin to approve/reject a professional's KYC."""
+    """Used by ops/admin to decide on a professional's verification. `decision` takes
+    precedence; `approve` is kept for older callers. A rejection needs a reason, which the
+    professional sees in their app."""
 
-    approve: bool
-    rejection_reason: str | None = None
+    approve: bool | None = None
+    decision: Literal["approved", "rejected", "in_review"] | None = None
+    rejection_reason: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _has_decision(self) -> "ProfessionalReviewDecisionIn":
+        if self.decision is None:
+            if self.approve is None:
+                raise ValueError("Provide decision (or approve).")
+            self.decision = "approved" if self.approve else "rejected"
+        return self
 
 
 class AvailabilitySlotIn(BaseModel):

@@ -10,10 +10,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config_registry import PricingConfig
 from app.core.constants import CouponDiscountType
 from app.core.exceptions import ValidationAppError
 from app.models.wallet import Coupon
+from app.services.config_service import ConfigService
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,13 @@ class PricingService:
         discount_amount = await self._resolve_coupon_discount(coupon_code, base_price)
         discounted_base = base_price - discount_amount
 
-        commission_pct = settings.PLATFORM_COMMISSION_PCT
+        pricing = await ConfigService(self.session).typed("pricing", PricingConfig)
+        commission_pct = pricing.commission_pct
         platform_fee = discounted_base * commission_pct / 100
         taxable_amount = (
             discounted_base  # GST is charged on the service value, not the platform fee
         )
-        tax_amount = taxable_amount * settings.GST_PCT / 100
+        tax_amount = taxable_amount * pricing.gst_pct / 100
         total_amount = discounted_base + tax_amount
         professional_payout_amount = discounted_base - platform_fee
 

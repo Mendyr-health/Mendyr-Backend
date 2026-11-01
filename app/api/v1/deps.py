@@ -1,4 +1,5 @@
 """Shared FastAPI dependencies: DB session passthrough, current-user resolution, pagination."""
+
 import uuid
 
 import jwt
@@ -6,7 +7,7 @@ from fastapi import Cookie, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.constants import UserRole
+from app.core.constants import UserRole, UserStatus
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.core.security import decode_token
 from app.db.session import get_db
@@ -44,8 +45,12 @@ async def get_current_user(
         raise UnauthorizedError("Invalid token type.")
 
     user = await db.get(User, uuid.UUID(payload["sub"]))
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise UnauthorizedError("User no longer exists.")
+    # Checked on every request, not just at login: a suspension takes effect immediately
+    # instead of when the 30-minute access token runs out.
+    if user.status != UserStatus.ACTIVE:
+        raise UnauthorizedError("This account has been suspended. Contact support.")
     return user
 
 

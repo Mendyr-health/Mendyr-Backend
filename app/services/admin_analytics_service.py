@@ -10,10 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import BookingStatus, UserRole, VerificationStatus
 from app.models.address import Address
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingStatusHistory
 from app.models.professional import ProfessionalProfile
+from app.models.review import Review
 from app.models.user import User
-from app.schemas.admin_analytics import DailySignups, DashboardOverviewOut, LocationBreakdown
+from app.schemas.admin_analytics import (
+    BusinessKpis,
+    DailyBookings,
+    DailySignups,
+    DashboardOverviewOut,
+    LocationBreakdown,
+)
 
 DEFAULT_TREND_DAYS = 14
 TOP_LOCATIONS_LIMIT = 10
@@ -70,6 +77,98 @@ class AdminAnalyticsService:
             bookings_by_status=bookings_by_status,
             daily_signups=daily_signups,
             top_locations=top_locations,
+            kpis=await self._kpis(bookings_by_status, professionals_by_status),
+        )
+
+    async def _kpis(
+        self, bookings_by_status: dict[str, int], professionals_by_status: dict[str, int]
+    ) -> BusinessKpis:
+        now = datetime.now(UTC)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        gmv, revenue = (
+            await self.session.execute(
+                select(
+                    func.coalesce(func.sum(Booking.total_amount), 0),
+                    func.coalesce(func.sum(Booking.platform_fee), 0),
+                ).where(Booking.status == BookingStatus.COMPLETED)
+            )
+        ).one()
+        bookings_today = (
+            await self.session.execute(
+                select(func.count(Booking.id)).where(Booking.created_at >= today)
+            )
+        ).scalar_one()
+
+        filled = sum(
+            bookings_by_status.get(s.value, 0)
+            for s in (
+                BookingStatus.ASSIGNED,
+                BookingStatus.CONFIRMED,
+                BookingStatus.EN_ROUTE,
+                BookingStatus.IN_PROGRESS,
+                BookingStatus.COMPLETED,
+                BookingStatus.NO_SHOW,
+            )
+        )
+        failed = bookings_by_status.get(BookingStatus.FAILED.value, 0)
+        cancelled = bookings_by_status.get(BookingStatus.CANCELLED.value, 0)
+        total = sum(bookings_by_status.values())
+
+        # Minutes from the request to its first ASSIGNED, over the last 30 days.
+        first_assigned = (
+            select(
+                BookingStatusHistory.booking_id,
+                func.min(BookingStatusHistory.created_at).label("assigned_at"),
+            )
+            .where(BookingStatusHistory.to_status == BookingStatus.ASSIGNED)
+            .group_by(BookingStatusHistory.booking_id)
+            .subquery()
+        )
+        avg_assign = (
+            await self.session.execute(
+                select(
+                    func.avg(
+                        func.extract("epoch", first_assigned.c.assigned_at - Booking.created_at)
+                    )
+                )
+                .join(first_assigned, first_assigned.c.booking_id == Booking.id)
+                .where(Booking.created_at >= now - timedelta(days=30))
+            )
+        ).scalar_one()
+        avg_rating = (await self.session.execute(select(func.avg(Review.rating)))).scalar_one()
+
+        day = func.date(Booking.created_at)
+        rows = await self.session.execute(
+            select(day, Booking.status, func.count(Booking.id))
+            .where(Booking.created_at >= today - timedelta(days=13))
+            .group_by(day, Booking.status)
+        )
+        per_day: dict[date, dict[str, int]] = {}
+        for d, status, n in rows.all():
+            bucket = per_day.setdefault(d, {"created": 0, "completed": 0, "cancelled": 0})
+            bucket["created"] += n
+            if status == BookingStatus.COMPLETED:
+                bucket["completed"] += n
+            elif status in (BookingStatus.CANCELLED, BookingStatus.FAILED):
+                bucket["cancelled"] += n
+        days = [(today - timedelta(days=13 - i)).date() for i in range(14)]
+        empty = {"created": 0, "completed": 0, "cancelled": 0}
+
+        return BusinessKpis(
+            gmv_completed=float(gmv),
+            platform_revenue=float(revenue),
+            bookings_today=bookings_today,
+            active_visits=bookings_by_status.get(BookingStatus.EN_ROUTE.value, 0)
+            + bookings_by_status.get(BookingStatus.IN_PROGRESS.value, 0),
+            fill_rate_pct=round(100 * filled / (filled + failed + cancelled), 1)
+            if filled + failed + cancelled
+            else None,
+            cancellation_rate_pct=round(100 * cancelled / total, 1) if total else None,
+            avg_minutes_to_assign=round(float(avg_assign) / 60, 1) if avg_assign else None,
+            pending_verifications=professionals_by_status.get(VerificationStatus.PENDING.value, 0)
+            + professionals_by_status.get(VerificationStatus.IN_REVIEW.value, 0),
+            average_rating=round(float(avg_rating), 2) if avg_rating else None,
+            daily_bookings=[DailyBookings(day=d, **per_day.get(d, empty)) for d in days],
         )
 
     @staticmethod
@@ -132,9 +231,7 @@ class AdminAnalyticsService:
             cursor += timedelta(days=1)
         return days
 
-    async def _top_locations(
-        self, city: str | None, state: str | None
-    ) -> list[LocationBreakdown]:
+    async def _top_locations(self, city: str | None, state: str | None) -> list[LocationBreakdown]:
         stmt = (
             select(Address.city, Address.state, func.count(func.distinct(Address.user_id)))
             .join(User, User.id == Address.user_id)

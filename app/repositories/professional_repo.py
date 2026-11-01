@@ -21,7 +21,11 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import settings
 from app.core.constants import ProfessionalType, VerificationStatus
-from app.models.professional import ProfessionalAvailabilitySlot, ProfessionalProfile
+from app.models.professional import (
+    ProfessionalAvailabilitySlot,
+    ProfessionalDocument,
+    ProfessionalProfile,
+)
 from app.models.service import ProfessionalService as ProfessionalServiceOptIn
 from app.models.service import Service, ServiceCategory
 from app.repositories.base import BaseRepository
@@ -66,6 +70,14 @@ class ProfessionalRepository(BaseRepository[ProfessionalProfile]):
             select(ProfessionalProfile).where(ProfessionalProfile.user_id == user_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_documents(self, professional_id: uuid.UUID) -> list[ProfessionalDocument]:
+        result = await self.session.execute(
+            select(ProfessionalDocument)
+            .where(ProfessionalDocument.professional_id == professional_id)
+            .order_by(ProfessionalDocument.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     async def list_availability_slots(
         self, professional_id: uuid.UUID

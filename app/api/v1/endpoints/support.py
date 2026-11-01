@@ -1,10 +1,12 @@
 """Support tickets raised by patients or professionals."""
+
 import uuid
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_user
+from app.core.constants import ADMIN_ROLES, UserRole
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.support import SupportTicketCreateIn, SupportTicketMessageIn, SupportTicketRead
@@ -29,5 +31,8 @@ async def add_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    message = await SupportService(db).add_message(ticket_id, current_user.id, payload)
+    is_staff = current_user.role in ADMIN_ROLES or current_user.role == UserRole.OPS
+    message = await SupportService(db).add_message(
+        ticket_id, current_user.id, payload, is_staff=is_staff
+    )
     return {"id": str(message.id), "message": message.message}

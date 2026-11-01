@@ -12,6 +12,7 @@ import pytest_asyncio
 from app.core.constants import ProfessionalType
 from app.db.session import AsyncSessionLocal
 from app.models.service import Service, ServiceCategory
+from tests.conftest import set_config
 
 IST = ZoneInfo("Asia/Kolkata")
 NATIVE = {"X-Client-Platform": "android"}
@@ -32,6 +33,14 @@ def _next_ist(weekday: int, hour: int) -> datetime:
     now = datetime.now(IST)
     days_ahead = (weekday - now.weekday()) % 7 or 7
     return (now + timedelta(days=days_ahead)).replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def _auto_approve_professionals():
+    # These tests are about matching, not KYC: let new professionals skip the queue.
+    await set_config("verification", {"auto_approve": True})
+    yield
+    await set_config("verification", {"auto_approve": False})
 
 
 @pytest_asyncio.fixture(scope="module")

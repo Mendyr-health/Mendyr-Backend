@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.config_registry import BookingRules, FeatureFlags
 from app.core.constants import BookingStatus
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationAppError
 from app.models.booking import Booking, BookingVisit
@@ -22,10 +23,9 @@ from app.models.professional import ProfessionalProfile
 from app.repositories.booking_repo import BookingRepository
 from app.schemas.booking import VisitCheckInIn, VisitCheckOutIn
 from app.services.booking_service import BookingService
+from app.services.config_service import ConfigService
+from app.services.notification_service import NotificationService
 
-# How early before the scheduled start a visit may be started — stops a mis-tap on next
-# week's booking from marking it in progress today.
-EARLY_START_WINDOW = timedelta(hours=2)
 STARTABLE_STATUSES = frozenset(
     {BookingStatus.ASSIGNED, BookingStatus.CONFIRMED, BookingStatus.EN_ROUTE}
 )
@@ -40,6 +40,8 @@ class VisitService:
         self.session = session
         self.bookings = BookingRepository(session)
         self.booking_service = BookingService(session)
+        self.config = ConfigService(session)
+        self.notifications = NotificationService(session)
 
     async def _get_booking_for_professional(
         self, booking_id: uuid.UUID, professional_id: uuid.UUID
@@ -67,6 +69,11 @@ class VisitService:
         visit = await self._get_or_create_visit(booking_id)
         visit.en_route_at = datetime.now(UTC)
         await self.booking_service.transition_status(booking, BookingStatus.EN_ROUTE)
+        await self.notifications.notify_booking_status(
+            booking,
+            title="Your professional is on the way",
+            body=f"They've set off for your {booking.service_name_snapshot} visit.",
+        )
         return booking
 
     async def check_in(
@@ -76,9 +83,22 @@ class VisitService:
         if booking.status not in STARTABLE_STATUSES:
             raise ValidationAppError(f"A {booking.status} visit can't be started.")
         now = datetime.now(UTC)
-        if booking.scheduled_start_at.replace(tzinfo=UTC) - now > EARLY_START_WINDOW:
+        # How early before the scheduled start a visit may be started — stops a mis-tap on
+        # next week's booking from marking it in progress today.
+        rules = await self.config.typed("booking.rules", BookingRules)
+        if booking.scheduled_start_at.replace(tzinfo=UTC) - now > timedelta(
+            minutes=rules.early_start_minutes
+        ):
+            hours = rules.early_start_minutes / 60
             raise ValidationAppError(
-                "This visit can be started up to 2 hours before its scheduled time."
+                f"This visit can be started up to {hours:g} hours before its scheduled time."
+            )
+        features = await self.config.typed("app.features", FeatureFlags)
+        expected_pin = (booking.extended_attributes or {}).get("visit_pin")
+        if features.visit_otp and expected_pin and payload.visit_pin != expected_pin:
+            raise ValidationAppError(
+                "Ask the patient for the 4-digit visit PIN shown in their app.",
+                code="visit_pin_invalid",
             )
 
         has_location = payload.latitude is not None and payload.longitude is not None
@@ -104,6 +124,11 @@ class VisitService:
 
         visit.checked_in_at = now
         await self.booking_service.transition_status(booking, BookingStatus.IN_PROGRESS)
+        await self.notifications.notify_booking_status(
+            booking,
+            title="Your visit has started",
+            body=f"Your {booking.service_name_snapshot} visit is now in progress.",
+        )
         return booking
 
     async def check_out(
@@ -125,5 +150,10 @@ class VisitService:
         professional = await self.session.get(ProfessionalProfile, professional_id)
         if professional is not None:
             professional.total_visits_completed += 1
+        await self.notifications.notify_booking_status(
+            booking,
+            title="Visit completed",
+            body="See the visit summary and rate your professional.",
+        )
         await self.session.flush()
         return booking

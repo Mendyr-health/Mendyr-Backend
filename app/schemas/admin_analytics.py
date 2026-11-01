@@ -28,3 +28,27 @@ class DashboardOverviewOut(BaseModel):
     # professionals only carry a live geo point (current_location, no city/state column),
     # so there's nothing to group them by without reverse-geocoding — out of scope here.
     top_locations: list[LocationBreakdown]
+    kpis: "BusinessKpis | None" = None
+
+
+class DailyBookings(BaseModel):
+    day: date
+    created: int
+    completed: int
+    cancelled: int
+
+
+class BusinessKpis(BaseModel):
+    """Marketplace health, all-time unless noted. Money is in rupees."""
+
+    gmv_completed: float
+    platform_revenue: float
+    bookings_today: int
+    active_visits: int
+    # Share of requests that found a professional, of those that have resolved either way.
+    fill_rate_pct: float | None
+    cancellation_rate_pct: float | None
+    avg_minutes_to_assign: float | None
+    pending_verifications: int
+    average_rating: float | None
+    daily_bookings: list[DailyBookings]

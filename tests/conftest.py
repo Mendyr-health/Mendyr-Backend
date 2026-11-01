@@ -14,6 +14,8 @@ from app.core.rate_limit import limiter
 from app.db.base_class import Base
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
+from app.models.config import Config
+from app.services.config_service import invalidate_config_cache
 
 _LOCAL_HOST_MARKERS = ("localhost", "127.0.0.1", "::1")
 
@@ -58,3 +60,19 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+async def set_config(key: str, value: object) -> None:
+    """Upsert a config row directly and drop the service's read cache."""
+    async with AsyncSessionLocal() as session:
+        existing = (
+            await session.execute(Config.__table__.select().where(Config.key == key))
+        ).first()
+        if existing is None:
+            session.add(Config(key=key, value=value, is_active=True))
+        else:
+            await session.execute(
+                Config.__table__.update().where(Config.key == key).values(value=value)
+            )
+        await session.commit()
+    invalidate_config_cache()

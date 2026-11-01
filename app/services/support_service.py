@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import SupportTicketStatus
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.support import SupportTicket, SupportTicketMessage
 from app.schemas.support import SupportTicketCreateIn, SupportTicketMessageIn
 
@@ -40,11 +40,18 @@ class SupportService:
         return ticket
 
     async def add_message(
-        self, ticket_id: uuid.UUID, sender_id: uuid.UUID, payload: SupportTicketMessageIn
+        self,
+        ticket_id: uuid.UUID,
+        sender_id: uuid.UUID,
+        payload: SupportTicketMessageIn,
+        *,
+        is_staff: bool = False,
     ) -> SupportTicketMessage:
         ticket = await self.session.get(SupportTicket, ticket_id)
         if ticket is None:
             raise NotFoundError("Support ticket not found.")
+        if not is_staff and ticket.raised_by_id != sender_id:
+            raise ForbiddenError("This ticket does not belong to you.")
 
         message = SupportTicketMessage(
             ticket_id=ticket_id,

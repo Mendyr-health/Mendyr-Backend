@@ -9,7 +9,7 @@ from geoalchemy2.shape import to_shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config_registry import VerificationConfig
 from app.core.constants import ProfessionalType, VerificationStatus
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.models.professional import (
@@ -33,6 +33,9 @@ from app.schemas.professional import (
     ProfessionalServiceUpdateIn,
     ProfessionalUpdateIn,
 )
+from app.services.audit_service import AuditService
+from app.services.config_service import ConfigService
+from app.services.notification_service import NotificationService
 
 _NON_NULLABLE_FIELDS = frozenset({"years_of_experience", "is_accepting_bookings"})
 
@@ -96,7 +99,8 @@ class ProfessionalService:
 
         services = await self._services_for(payload.professional_type, payload.service_ids)
         now = datetime.now(UTC)
-        auto_approve = settings.AUTO_APPROVE_PROFESSIONALS
+        verification = await ConfigService(self.session).typed("verification", VerificationConfig)
+        auto_approve = verification.auto_approve
         profile = ProfessionalProfile(
             user_id=user_id,
             professional_type=payload.professional_type,
@@ -174,16 +178,58 @@ class ProfessionalService:
         if profile is None:
             raise NotFoundError("Professional not found.")
 
-        if decision.approve:
+        before = profile.verification_status
+        now = datetime.now(UTC)
+        if decision.decision == "approved":
             profile.verification_status = VerificationStatus.APPROVED
-            profile.verified_at = datetime.now(UTC)
+            profile.verified_at = now
             profile.rejection_reason = None
-        else:
+            title, body = (
+                "You're verified!",
+                "Your profile is approved. Turn on 'Accepting requests' to start getting visits.",
+            )
+        elif decision.decision == "rejected":
             if not decision.rejection_reason:
                 raise ValidationAppError("rejection_reason is required when rejecting.")
             profile.verification_status = VerificationStatus.REJECTED
+            profile.verified_at = None
             profile.rejection_reason = decision.rejection_reason
+            title, body = (
+                "Verification needs attention",
+                f"Your profile wasn't approved: {decision.rejection_reason}",
+            )
+        else:
+            profile.verification_status = VerificationStatus.IN_REVIEW
+            title, body = (
+                "Your profile is under review",
+                "Our team is checking your details. This usually takes a day.",
+            )
 
+        # Documents follow the profile decision; per-document review isn't exposed yet.
+        for document in await self.professionals.list_documents(profile.id):
+            if decision.decision in ("approved", "rejected"):
+                document.verification_status = profile.verification_status
+                document.reviewed_by_id = reviewer_id
+                document.reviewed_at = now
+
+        AuditService(self.session).log(
+            actor_id=reviewer_id,
+            action=f"professional.{decision.decision}",
+            entity_type="professional",
+            entity_id=str(profile.id),
+            metadata={
+                "from": before.value,
+                "to": profile.verification_status.value,
+                "reason": decision.rejection_reason,
+                "note": decision.note,
+            },
+        )
+        await NotificationService(self.session).push_to_user(
+            profile.user_id,
+            title=title,
+            body=body,
+            data={"template_key": "verification_update", "status": decision.decision},
+        )
         await self.session.flush()
         return profile
 

@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     MAX_SEARCH_RADIUS_KM: float = 30
     BOOKING_OFFER_TTL_SECONDS: int = 60
     BOOKING_MAX_OFFER_ROUNDS: int = 4
+    # Defaults for the `booking.rules` / `pricing` configs (see app/core/config_registry.py);
+    # the admin portal overrides them, as it does the booking horizon and KYC auto-approval.
     FREE_CANCELLATION_WINDOW_MINUTES: int = 60
     CANCELLATION_FEE_PCT: float = 25
     VISIT_CHECKIN_GEOFENCE_METERS: int = 300
@@ -136,12 +138,6 @@ class Settings(BaseSettings):
     # web prototype, where "Start visit" is a plain button; when on, check-in must include a
     # location within VISIT_CHECKIN_GEOFENCE_METERS of the booking address.
     VISIT_GEOFENCE_ENABLED: bool = False
-    # How far ahead a patient may schedule a visit.
-    BOOKING_MAX_DAYS_AHEAD: int = 60
-    # Professionals are verified on signup while the prototype has no ops review screen. Set
-    # false once KYC review is staffed: new profiles then start PENDING and see no requests
-    # until approved via POST /admin/professionals/{id}/review.
-    AUTO_APPROVE_PROFESSIONALS: bool = True
     # Weekly availability slots are wall-clock times in this zone. A booking's UTC start time
     # is converted to it before being compared against a professional's timings.
     MARKET_TIMEZONE: str = "Asia/Kolkata"

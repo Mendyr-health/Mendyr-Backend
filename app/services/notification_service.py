@@ -63,7 +63,7 @@ class NotificationService:
         await self.push_to_user(
             professional.user_id,
             title="New booking request",
-            body=f"{booking.service_name_snapshot} — respond within 60 seconds.",
+            body=f"{booking.service_name_snapshot} near you — open the app to accept.",
             data={"template_key": "offer_received", "booking_id": str(booking.id)},
         )
 

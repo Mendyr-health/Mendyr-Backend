@@ -1,6 +1,7 @@
 """Booking lifecycle. Patient side: quote, create, list, get, cancel. Professional side: open
 requests near them, accept, release, and their assigned bookings (visit progress lives in
 `visits.py`). See `booking_service` for how matching works."""
+
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -25,11 +26,7 @@ from app.schemas.booking import (
     ProfessionalBookingRead,
 )
 from app.schemas.common import PaginationParams
-from app.services.booking_service import (
-    BookingService,
-    to_professional_read,
-    to_request_read,
-)
+from app.services.booking_service import BookingService, to_request_read
 from app.services.catalog_service import CatalogService
 from app.services.payment_service import PaymentService
 
@@ -72,6 +69,7 @@ async def list_my_bookings(
     pagination: PaginationParams = Depends(pagination_params),
     db: AsyncSession = Depends(get_db),
 ) -> list[BookingListItem]:
+    await BookingService(db).expire_stale_requests()
     rows = await BookingRepository(db).list_for_patient(
         current_user.id, limit=pagination.page_size, offset=pagination.offset
     )
@@ -107,7 +105,7 @@ async def list_professional_bookings(
     rows = await BookingRepository(db).list_for_professional(
         professional.id, limit=pagination.page_size, offset=pagination.offset
     )
-    return [to_professional_read(row) for row in rows]
+    return await BookingService(db).professional_reads(rows, professional)
 
 
 @router.get("/professional/{booking_id}", response_model=ProfessionalBookingRead)

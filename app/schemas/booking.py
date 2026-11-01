@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, Field
 
@@ -21,6 +22,8 @@ class BookingCreateIn(BaseModel):
     total_visits: int | None = Field(default=None, ge=1, le=90)
     visits_per_day: int = Field(default=1, ge=1, le=4)
     preferred_professional_id: uuid.UUID | None = None
+    # Only professionals of this gender see the request (feature flag `gender_preference`).
+    preferred_gender: Literal["female", "male"] | None = None
 
 
 class BookingQuoteIn(BaseModel):
@@ -46,11 +49,23 @@ class BookingCancelIn(BaseModel):
 
 
 class AssignedProfessionalRead(ProfessionalPublicRead):
-    """The professional assigned to a patient's booking. Includes their phone number: once a
-    visit is confirmed the two need to coordinate directly, and the prototype has no in-app
-    chat or call masking."""
+    """The professional assigned to a patient's booking. Includes their phone number while
+    the visit is live — the two need to coordinate directly and there's no call masking. Once
+    the booking is cancelled (or a while after it's done) the number is withheld and only
+    `user_ref` is shown; see `PrivacyConfig`."""
 
-    phone_number: str
+    phone_number: str | None
+    user_ref: str
+    is_verified: bool
+    gender: str
+
+
+class StatusEvent(BaseModel):
+    """One step of a booking's timeline, oldest first."""
+
+    status: BookingStatus
+    at: datetime
+    note: str | None = None
 
 
 class BookingRead(ORMModel):
@@ -72,10 +87,22 @@ class BookingRead(ORMModel):
     total_amount: float
     patient_notes: str | None = None
     cancellation_reason: str | None = None
+    cancellation_fee_amount: float = 0
+    cancelled_by: Literal["patient", "professional", "admin", "system"] | None = None
     professional: AssignedProfessionalRead | None = None
-    # The professional's notes from check-out, shown to the patient once the visit is done.
+    # The professional's notes and vitals from check-out, shown once the visit is done.
     visit_summary_notes: str | None = None
+    vitals_recorded: str | None = None
     review_rating: int | None = None
+    # Read out to the professional at the door to start the visit (flag `visit_otp`).
+    # Only present while the visit is upcoming.
+    visit_pin: str | None = None
+    preferred_gender: str | None = None
+    en_route_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    contact_hidden: bool = False
+    timeline: list[StatusEvent] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -104,11 +131,16 @@ class BookingRequestRead(BaseModel):
     # What the professional takes home (base price minus platform commission).
     earning_amount: float
     patient_notes: str | None
+    preferred_gender: str | None = None
     created_at: datetime
 
 
 class ProfessionalBookingRead(BaseModel):
-    """A booking assigned to the calling professional — everything needed to do the visit."""
+    """A booking assigned to the calling professional — everything needed to do the visit.
+
+    When `contact_hidden` is true (cancelled, or a while after completion — see
+    `PrivacyConfig`) the phone, exact address and coordinates are withheld: `address` is just
+    the area and the patient is identified by `patient_ref`."""
 
     id: uuid.UUID
     booking_code: str
@@ -119,15 +151,23 @@ class ProfessionalBookingRead(BaseModel):
     address: str
     landmark: str | None
     instructions: str | None
-    latitude: float
-    longitude: float
+    latitude: float | None
+    longitude: float | None
     patient_name: str
-    patient_phone: str
+    patient_phone: str | None
+    patient_ref: str
     patient_notes: str | None
     earning_amount: float
+    en_route_at: datetime | None = None
     started_at: datetime | None
     completed_at: datetime | None
     visit_summary_notes: str | None
+    vitals_recorded: str | None = None
+    cancellation_reason: str | None = None
+    cancelled_by: Literal["patient", "professional", "admin", "system"] | None = None
+    # True when check-in must include the patient's visit PIN.
+    requires_visit_pin: bool = False
+    contact_hidden: bool = False
     created_at: datetime
 
 
@@ -135,6 +175,8 @@ class VisitCheckInIn(BaseModel):
     # Only required (and checked against the address) when VISIT_GEOFENCE_ENABLED is on.
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    # The patient's visit PIN — required when the `visit_otp` feature flag is on.
+    visit_pin: str | None = Field(default=None, min_length=4, max_length=4)
 
 
 class VisitCheckOutIn(BaseModel):

@@ -260,10 +260,12 @@ A patient can cancel (`POST /bookings/{id}/cancel`) until the visit starts.
 
 - **Patients & professionals**: email + password (`POST /auth/register`, `POST /auth/login`).
   Registration takes `role: patient | professional`; a professional then completes
-  `POST /professionals/onboard` (profession, service area, services). Professionals are
-  approved automatically while `AUTO_APPROVE_PROFESSIONALS=true` (the prototype default).
+  `POST /professionals/onboard` (profession, service area, services). New professionals
+  start `pending` and see no requests until a super admin approves them in the config
+  portal — unless the `verification.auto_approve` config is switched on.
 - **Admin/ops**: same JWT mechanism; accounts are provisioned with `scripts/create_admin.py`
-  (no public self-signup for these roles).
+  (no public self-signup for these roles). `admin` and `super_admin` have full config-portal
+  access; `ops` can read the operations screens and cancel/reopen bookings.
 - **Tokens**: access token (30 min) + rotating refresh token (7 days), HS256, role in the
   access-token claim. Browser clients get both as httponly cookies on path `/api` and never
   touch a token: `POST /auth/token/refresh` with no body reads the refresh cookie. Native
@@ -348,11 +350,21 @@ Deliberate stubs to swap in before go-live:
 - **Geocoding**: OpenStreetMap Nominatim (free, ~1 request/second) via `/geo/locate` and
   `/geo/reverse`. Move to a paid geocoder (`GoogleMapsClient` is a starting point) before
   real traffic.
-- **KYC review**: professionals are auto-approved (`AUTO_APPROVE_PROFESSIONALS`); turn it off
-  once ops reviews documents via the `/admin/professionals` endpoints.
+- **KYC review**: manual by default — the portal's verification queue uses the
+  `/admin/professionals` endpoints. Document review is per-profile, not per-document.
 - **Payouts**: `PayoutService` computes and records payout rows; it does not yet call a bank
   transfer API (e.g. Razorpay Route/Payouts) to actually move money — `mark_paid` is a manual
   trigger point for that integration.
 - **Admin auth**: no self-serve signup for `admin`/`ops` roles by design; provision these
   accounts directly in the database (or add an internal-only creation endpoint gated by a
   deploy-time secret) rather than exposing the role in the public signup payload.
+
+## Runtime config
+
+Business rules and app behaviour live in the `configs` table, typed by
+`app/core/config_registry.py`: feature flags, theme, home layout, banners, copy, support/SOS
+numbers, version gates, booking rules (slots, lead time, cancellation policy, travel buffer),
+pricing, verification policy and privacy rules. The apps read the public keys from
+`GET /configs/app`; the backend reads the rest through `ConfigService.typed()`, which caches
+for 15 seconds per process. Env vars such as `PLATFORM_COMMISSION_PCT` are only the defaults
+until an admin saves a value in the portal.

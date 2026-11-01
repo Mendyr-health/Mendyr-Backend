@@ -13,14 +13,16 @@ on a payment step. The Razorpay endpoints still exist for when online payment co
 
 import secrets
 import string
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from geoalchemy2.elements import WKTElement
 from geoalchemy2.shape import to_shape
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config_registry import BookingRules, FeatureFlags, PrivacyConfig
 from app.core.constants import BookingStatus, BookingType, VerificationStatus
 from app.core.exceptions import (
     ConflictError,
@@ -32,6 +34,7 @@ from app.models.address import Address
 from app.models.booking import Booking, BookingStatusHistory
 from app.models.professional import ProfessionalProfile
 from app.models.service import Service
+from app.models.user import User
 from app.repositories.booking_repo import (
     BookingRepository,
     OpenRequestRow,
@@ -44,7 +47,9 @@ from app.schemas.booking import (
     BookingRead,
     BookingRequestRead,
     ProfessionalBookingRead,
+    StatusEvent,
 )
+from app.services.config_service import ConfigService
 from app.services.notification_service import NotificationService
 from app.services.pricing_service import PriceBreakdown, PricingService
 
@@ -97,6 +102,54 @@ RELEASABLE_STATUSES = frozenset({BookingStatus.ASSIGNED, BookingStatus.CONFIRMED
 
 CODE_ALPHABET = string.ascii_uppercase + string.digits
 
+# Statuses in which the patient needs the visit PIN to hand to the professional.
+PIN_VISIBLE_STATUSES = frozenset(
+    {BookingStatus.ASSIGNED, BookingStatus.CONFIRMED, BookingStatus.EN_ROUTE}
+)
+# Fee applies once a professional is committed to the visit.
+FEE_STATUSES = frozenset({BookingStatus.ASSIGNED, BookingStatus.CONFIRMED, BookingStatus.EN_ROUTE})
+# Slack on the minimum lead time: the app computes "now" a little before the request lands.
+LEAD_TIME_GRACE = timedelta(minutes=5)
+STALE_SWEEP_INTERVAL_SECONDS = 60
+_last_stale_sweep = 0.0
+
+CancelledBy = Literal["patient", "professional", "admin", "system"]
+
+
+def user_ref(user_id: uuid.UUID) -> str:
+    """Short, stable reference shown instead of a name/number once contact is hidden."""
+    return "MU-" + user_id.hex[:6].upper()
+
+
+def is_contact_hidden(
+    booking: Booking, privacy: PrivacyConfig, *, completed_at: datetime | None
+) -> bool:
+    if booking.status in privacy.hide_contact_on_statuses:
+        return True
+    if booking.status == BookingStatus.COMPLETED and privacy.hide_contact_hours_after_completion:
+        done = (completed_at or booking.updated_at).replace(tzinfo=UTC)
+        hidden_after = timedelta(hours=privacy.hide_contact_hours_after_completion)
+        return datetime.now(UTC) - done > hidden_after
+    return False
+
+
+def cancelled_by(booking: Booking, *, professional_user_id: uuid.UUID | None) -> CancelledBy | None:
+    if booking.status == BookingStatus.FAILED:
+        return "system"
+    if booking.status != BookingStatus.CANCELLED:
+        return None
+    if booking.cancelled_by_id is None:
+        return "system"
+    if booking.cancelled_by_id == booking.patient_id:
+        return "patient"
+    if professional_user_id is not None and booking.cancelled_by_id == professional_user_id:
+        return "professional"
+    return "admin"
+
+
+def _attr(booking: Booking, key: str) -> str | None:
+    return (booking.extended_attributes or {}).get(key)
+
 
 def _generate_booking_code() -> str:
     return "MNDYR-" + "".join(secrets.choice(CODE_ALPHABET) for _ in range(6))
@@ -122,6 +175,13 @@ class BookingService:
         self.bookings = BookingRepository(session)
         self.pricing = PricingService(session)
         self.notifications = NotificationService(session)
+        self.config = ConfigService(session)
+
+    async def _rules(self) -> BookingRules:
+        return await self.config.typed("booking.rules", BookingRules)
+
+    async def _features(self) -> FeatureFlags:
+        return await self.config.typed("app.features", FeatureFlags)
 
     async def transition_status(
         self,
@@ -161,12 +221,17 @@ class BookingService:
         if address.user_id != patient_id:
             raise ForbiddenError("This address does not belong to you.")
         now = datetime.now(UTC)
+        rules = await self._rules()
+        features = await self._features()
         if payload.scheduled_start_at <= now:
             raise ValidationAppError("Please pick a time in the future.")
-        if payload.scheduled_start_at > now + timedelta(days=settings.BOOKING_MAX_DAYS_AHEAD):
+        earliest = now + timedelta(minutes=rules.min_lead_minutes) - LEAD_TIME_GRACE
+        if payload.scheduled_start_at < earliest:
             raise ValidationAppError(
-                f"Visits can be booked up to {settings.BOOKING_MAX_DAYS_AHEAD} days ahead."
+                f"Please pick a slot at least {rules.min_lead_minutes} minutes from now."
             )
+        if payload.scheduled_start_at > now + timedelta(days=rules.horizon_days):
+            raise ValidationAppError(f"Visits can be booked up to {rules.horizon_days} days ahead.")
         if payload.booking_type == BookingType.CARE_PLAN and not payload.total_visits:
             raise ValidationAppError("total_visits is required for a care plan booking.")
 
@@ -196,6 +261,14 @@ class BookingService:
             professional_payout_amount=breakdown.professional_payout_amount,
             commission_pct=breakdown.commission_pct,
             patient_notes=payload.patient_notes,
+            extended_attributes={
+                # Always generated, only enforced while the `visit_otp` flag is on — turning
+                # the flag on then covers bookings made before it.
+                "visit_pin": f"{secrets.randbelow(10_000):04d}",
+                "preferred_gender": payload.preferred_gender
+                if features.gender_preference
+                else None,
+            },
         )
         self.bookings.add(booking)
         await self.session.flush()
@@ -226,15 +299,13 @@ class BookingService:
                 raise ValidationAppError("This visit has already started and can't be cancelled.")
             raise ValidationAppError(f"A {booking.status} booking cannot be cancelled.")
 
+        rules = await self._rules()
         minutes_to_start = (
             booking.scheduled_start_at.replace(tzinfo=UTC) - datetime.now(UTC)
         ).total_seconds() / 60
         fee = 0.0
-        if minutes_to_start < settings.FREE_CANCELLATION_WINDOW_MINUTES and booking.status in (
-            BookingStatus.ASSIGNED,
-            BookingStatus.CONFIRMED,
-        ):
-            fee = round(float(booking.total_amount) * settings.CANCELLATION_FEE_PCT / 100, 2)
+        if minutes_to_start < rules.free_cancel_window_minutes and booking.status in FEE_STATUSES:
+            fee = round(float(booking.total_amount) * rules.cancellation_fee_pct / 100, 2)
 
         booking.cancellation_reason = reason
         booking.cancelled_by_id = cancelled_by_id
@@ -247,14 +318,50 @@ class BookingService:
 
     # ── Professional side ───────────────────────────────────────────────
 
+    async def expire_stale_requests(self) -> int:
+        """Fail requests nobody accepted before their start time, and tell the patient.
+
+        There's no background worker on FastAPI Cloud, so this runs lazily from the list
+        endpoints, at most once a minute per process."""
+        global _last_stale_sweep
+        if time.monotonic() - _last_stale_sweep < STALE_SWEEP_INTERVAL_SECONDS:
+            return 0
+        _last_stale_sweep = time.monotonic()
+        stale = await self.bookings.list_stale_searching(now=datetime.now(UTC))
+        for booking in stale:
+            await self.transition_status(
+                booking,
+                BookingStatus.FAILED,
+                reason="No professional was available in time",
+            )
+            await self.notifications.notify_booking_status(
+                booking,
+                title="We couldn't find a professional",
+                body=f"No one was free for your {booking.service_name_snapshot} visit. "
+                "Please try another time — you haven't been charged.",
+            )
+        return len(stale)
+
+    async def _matching_args(self, professional: ProfessionalProfile) -> dict:
+        user = await self.session.get(User, professional.user_id)
+        rules = await self._rules()
+        return {
+            "now": datetime.now(UTC),
+            "gender": user.gender if user else None,
+            "travel_buffer": timedelta(minutes=rules.travel_buffer_minutes),
+        }
+
     async def list_open_requests(self, professional: ProfessionalProfile) -> list[OpenRequestRow]:
+        await self.expire_stale_requests()
         if (
             professional.verification_status != VerificationStatus.APPROVED
             or not professional.is_accepting_bookings
             or professional.current_location is None
         ):
             return []
-        return await self.bookings.list_open_requests(professional, now=datetime.now(UTC))
+        return await self.bookings.list_open_requests(
+            professional, **await self._matching_args(professional)
+        )
 
     async def accept(self, booking_id: uuid.UUID, professional: ProfessionalProfile) -> Booking:
         """First accept wins. The row lock makes a concurrent second accept wait, then see
@@ -266,9 +373,12 @@ class BookingService:
         if booking.status != BookingStatus.SEARCHING:
             raise ConflictError("Another professional has already accepted this request.")
         if not await self.bookings.is_open_request_for(
-            booking_id, professional, now=datetime.now(UTC)
+            booking_id, professional, **await self._matching_args(professional)
         ):
-            raise ForbiddenError("This request is outside your services, area or timings.")
+            raise ForbiddenError(
+                "This request is outside your services, area or timings, or clashes with a "
+                "visit you've already accepted."
+            )
 
         booking.professional_id = professional.id
         await self.transition_status(
@@ -312,7 +422,29 @@ class BookingService:
         if row is None:
             raise NotFoundError("Booking not found.")
         review_rating = await self.bookings.get_review_rating(booking_id)
-        return to_patient_read(row, review_rating=review_rating)
+        history = await self.bookings.list_status_history(booking_id)
+        return to_patient_read(
+            row,
+            review_rating=review_rating,
+            history=history,
+            privacy=await self.config.typed("privacy", PrivacyConfig),
+            features=await self._features(),
+        )
+
+    async def professional_reads(
+        self, rows: list[ProfessionalBookingRow], professional: ProfessionalProfile
+    ) -> list[ProfessionalBookingRead]:
+        privacy = await self.config.typed("privacy", PrivacyConfig)
+        features = await self._features()
+        return [
+            to_professional_read(
+                row,
+                privacy=privacy,
+                features=features,
+                professional_user_id=professional.user_id,
+            )
+            for row in rows
+        ]
 
     async def professional_view(
         self, booking_id: uuid.UUID, professional: ProfessionalProfile
@@ -320,18 +452,31 @@ class BookingService:
         row = await self.bookings.get_professional_row(booking_id, professional.id)
         if row is None:
             raise NotFoundError("Booking not found.")
-        return to_professional_read(row)
+        return (await self.professional_reads([row], professional))[0]
 
 
-def to_patient_read(row: PatientBookingRow, *, review_rating: int | None) -> BookingRead:
+def to_patient_read(
+    row: PatientBookingRow,
+    *,
+    review_rating: int | None,
+    history: list[BookingStatusHistory],
+    privacy: PrivacyConfig,
+    features: FeatureFlags,
+) -> BookingRead:
     booking, professional, professional_user, visit = row
+    hidden = is_contact_hidden(
+        booking, privacy, completed_at=visit.checked_out_at if visit else None
+    )
     assigned = None
     if professional is not None and professional_user is not None:
         assigned = AssignedProfessionalRead(
             id=professional.id,
             full_name=professional_user.full_name,
             avatar_url=professional_user.avatar_url,
-            phone_number=professional_user.phone_number,
+            phone_number=None if hidden else professional_user.phone_number,
+            user_ref=user_ref(professional_user.id),
+            is_verified=professional.verification_status == VerificationStatus.APPROVED,
+            gender=professional_user.gender.value,
             professional_type=professional.professional_type,
             years_of_experience=professional.years_of_experience,
             average_rating=float(professional.average_rating),
@@ -340,14 +485,45 @@ def to_patient_read(row: PatientBookingRow, *, review_rating: int | None) -> Boo
         )
     read = BookingRead.model_validate(booking)
     read.professional = assigned
+    read.cancelled_by = cancelled_by(
+        booking, professional_user_id=professional_user.id if professional_user else None
+    )
     read.visit_summary_notes = visit.visit_summary_notes if visit else None
+    read.vitals_recorded = visit.vitals_recorded if visit else None
+    read.en_route_at = visit.en_route_at if visit else None
+    read.started_at = visit.checked_in_at if visit else None
+    read.completed_at = visit.checked_out_at if visit else None
     read.review_rating = review_rating
+    read.preferred_gender = _attr(booking, "preferred_gender")
+    read.contact_hidden = hidden
+    if features.visit_otp and booking.status in PIN_VISIBLE_STATUSES:
+        read.visit_pin = _attr(booking, "visit_pin")
+    read.timeline = [
+        StatusEvent(status=h.to_status, at=h.created_at, note=h.reason) for h in history
+    ]
     return read
 
 
-def to_professional_read(row: ProfessionalBookingRow) -> ProfessionalBookingRead:
+def to_professional_read(
+    row: ProfessionalBookingRow,
+    *,
+    privacy: PrivacyConfig,
+    features: FeatureFlags,
+    professional_user_id: uuid.UUID,
+) -> ProfessionalBookingRead:
     booking, patient, address, visit = row
-    point = to_shape(booking.service_location)
+    hidden = is_contact_hidden(
+        booking, privacy, completed_at=visit.checked_out_at if visit else None
+    )
+    point = None if hidden else to_shape(booking.service_location)
+    # The address's on-site contact (e.g. a parent being cared for) when one was given.
+    contact_name = (address.contact_name if address and address.contact_name else None) or (
+        patient.full_name
+    )
+    contact_phone = (address.contact_phone if address and address.contact_phone else None) or (
+        patient.phone_number
+    )
+    area = f"{address.city} {address.pincode}" if address else "Area unavailable"
     return ProfessionalBookingRead(
         id=booking.id,
         booking_code=booking.booking_code,
@@ -355,21 +531,25 @@ def to_professional_read(row: ProfessionalBookingRow) -> ProfessionalBookingRead
         service_name=booking.service_name_snapshot,
         scheduled_start_at=booking.scheduled_start_at,
         scheduled_end_at=booking.scheduled_end_at,
-        address=booking.address_snapshot,
-        landmark=address.landmark if address else None,
-        instructions=address.instructions_for_professional if address else None,
-        latitude=point.y,
-        longitude=point.x,
-        # The address's on-site contact (e.g. a parent being cared for) when one was given.
-        patient_name=(address.contact_name if address and address.contact_name else None)
-        or patient.full_name,
-        patient_phone=(address.contact_phone if address and address.contact_phone else None)
-        or patient.phone_number,
+        address=area if hidden else booking.address_snapshot,
+        landmark=None if hidden or not address else address.landmark,
+        instructions=None if hidden or not address else address.instructions_for_professional,
+        latitude=point.y if point else None,
+        longitude=point.x if point else None,
+        patient_name=contact_name.split()[0] if hidden and contact_name else contact_name,
+        patient_phone=None if hidden else contact_phone,
+        patient_ref=user_ref(patient.id),
         patient_notes=booking.patient_notes,
         earning_amount=float(booking.professional_payout_amount),
+        en_route_at=visit.en_route_at if visit else None,
         started_at=visit.checked_in_at if visit else None,
         completed_at=visit.checked_out_at if visit else None,
         visit_summary_notes=visit.visit_summary_notes if visit else None,
+        vitals_recorded=visit.vitals_recorded if visit else None,
+        cancellation_reason=booking.cancellation_reason,
+        cancelled_by=cancelled_by(booking, professional_user_id=professional_user_id),
+        requires_visit_pin=features.visit_otp and bool(_attr(booking, "visit_pin")),
+        contact_hidden=hidden,
         created_at=booking.created_at,
     )
 
@@ -390,5 +570,6 @@ def to_request_read(row: OpenRequestRow) -> BookingRequestRead:
         distance_km=round(distance_meters / 1000, 1),
         earning_amount=float(booking.professional_payout_amount),
         patient_notes=booking.patient_notes,
+        preferred_gender=_attr(booking, "preferred_gender"),
         created_at=booking.created_at,
     )
