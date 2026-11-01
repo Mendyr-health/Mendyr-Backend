@@ -1,0 +1,79 @@
+name: Deploy to FastAPI Cloud
+
+# Manual only — never runs on push. Actions → "Deploy to FastAPI Cloud" → Run workflow,
+# then pick the branch to deploy from the "Use workflow from" dropdown.
+#
+# Needs two repo secrets, created once with:
+#   fastapi cloud setup-ci --secrets-only
+# (or a token from the app's "Deploy Tokens" page in the FastAPI Cloud dashboard):
+#   FASTAPI_CLOUD_TOKEN, FASTAPI_CLOUD_APP_ID
+#
+# This deploys code only. Migrations are separate (migrate.yml / `alembic upgrade head`) —
+# run them first when a release adds one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run the test suite (against a throwaway PostGIS) before deploying"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-fastapi-cloud
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: inputs.run_tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: mendyr
+          POSTGRES_PASSWORD: mendyr
+          POSTGRES_DB: mendyr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mendyr"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SECRET_KEY: ci-only-not-a-secret
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: mendyr
+      POSTGRES_PASSWORD: mendyr
+      POSTGRES_DB: mendyr
+      REDIS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Enable extensions (same as docker/postgres/init.sql)
+        run: psql -h localhost -U mendyr -d mendyr -f docker/postgres/init.sql
+        env:
+          PGPASSWORD: mendyr
+      - run: uv sync --frozen --extra dev
+      - run: uv run ruff check app
+      - run: uv run pytest -q -p no:logging
+
+  deploy:
+    needs: test
+    # Runs after tests pass, or straight away when tests were switched off.
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Deploy ${{ github.ref_name }}
+        run: uv run fastapi deploy
+        env:
+          FASTAPI_CLOUD_TOKEN: ${{ secrets.FASTAPI_CLOUD_TOKEN }}
+          FASTAPI_CLOUD_APP_ID: ${{ secrets.FASTAPI_CLOUD_APP_ID }}
