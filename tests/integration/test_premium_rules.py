@@ -23,7 +23,6 @@ from tests.integration.test_booking_flow import (
     _patient_with_address,
     _register,
     _request_ids,
-    nursing_service_id,  # noqa: F401 — pytest fixture
 )
 
 pytestmark = pytest.mark.asyncio
@@ -78,6 +77,22 @@ async def test_professional_doesnt_see_requests_that_clash_with_an_accepted_visi
 
     response = await client.post(f"/api/v1/bookings/{overlapping['id']}/accept", headers=nurse)
     assert response.status_code == 403
+
+    def nearby_at(when: datetime):
+        return client.get(
+            "/api/v1/professionals/nearby",
+            headers=patient,
+            params={
+                "service_id": nursing_service_id,
+                "address_id": address_id,
+                "scheduled_at": when.isoformat(),
+            },
+        )
+
+    busy = {p["full_name"] for p in _data(await nearby_at(day + timedelta(minutes=30)))}
+    free = {p["full_name"] for p in _data(await nearby_at(day + timedelta(hours=3)))}
+    assert "Clash Nurse" not in busy
+    assert "Clash Nurse" in free
 
 
 async def test_contact_details_are_hidden_after_cancellation(client, nursing_service_id):
@@ -145,9 +160,7 @@ async def test_visit_pin_is_required_when_the_flag_is_on(client, nursing_service
     accepted = _data(await client.post(f"/api/v1/bookings/{booking['id']}/accept", headers=nurse))
     assert accepted["requires_visit_pin"] is True
 
-    pin = _data(await client.get(f"/api/v1/bookings/{booking['id']}", headers=patient))[
-        "visit_pin"
-    ]
+    pin = _data(await client.get(f"/api/v1/bookings/{booking['id']}", headers=patient))["visit_pin"]
     assert pin and len(pin) == 4
 
     wrong = "0000" if pin != "0000" else "1111"
@@ -225,9 +238,7 @@ async def test_config_bundle_defaults_validation_and_access(client):
     theme = next(e for e in registry if e["key"] == "app.theme")
     assert theme["is_overridden"] is True and "properties" in theme["schema"]
 
-    activity = _data(
-        await client.get("/api/v1/admin/activity?entity_type=config", headers=admin)
-    )
+    activity = _data(await client.get("/api/v1/admin/activity?entity_type=config", headers=admin))
     assert any(a["entity_id"] == "app.theme" for a in activity)
     await client.delete(f"/api/v1/configs/{saved['id']}", headers=admin)
 

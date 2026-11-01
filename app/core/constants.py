@@ -83,6 +83,17 @@ class BookingStatus(StrEnum):
     FAILED = "failed"  # no professional found / payment failed
 
 
+# A professional holding a booking in one of these is busy for its time window.
+COMMITTED_STATUSES = frozenset(
+    {
+        BookingStatus.ASSIGNED,
+        BookingStatus.CONFIRMED,
+        BookingStatus.EN_ROUTE,
+        BookingStatus.IN_PROGRESS,
+    }
+)
+
+
 class OfferStatus(StrEnum):
     PENDING = "pending"
     ACCEPTED = "accepted"

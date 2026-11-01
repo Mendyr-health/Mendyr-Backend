@@ -1,6 +1,8 @@
 """Professional self-service: onboarding, profile and service area, weekly timings, services,
 KYC document upload. Also the patient-facing "professionals near this address" endpoint."""
+
 import uuid
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends
 from geoalchemy2.shape import to_shape
@@ -8,6 +10,7 @@ from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_professional
+from app.core.config_registry import BookingRules
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.permissions import require_patient, require_professional
 from app.db.session import get_db
@@ -30,6 +33,7 @@ from app.schemas.professional import (
     ProfessionalUpdateIn,
 )
 from app.services.catalog_service import CatalogService
+from app.services.config_service import ConfigService
 from app.services.professional_service import ProfessionalService, to_professional_read
 from app.services.storage_service import StorageService
 
@@ -160,11 +164,14 @@ async def find_nearby_professionals(
         raise ForbiddenError("This address does not belong to you.")
 
     catalogue_service = await CatalogService(db).get_service(service_id)
+    rules = await ConfigService(db).typed("booking.rules", BookingRules)
     candidates = await ProfessionalRepository(db).find_nearby_candidates(
         service_id=service_id,
         professional_type=catalogue_service.required_professional_type,
         location_wkt=to_shape(address.location).wkt,
         at=scheduled_at,
+        duration=timedelta(minutes=catalogue_service.duration_minutes),
+        travel_buffer=timedelta(minutes=rules.travel_buffer_minutes),
     )
     return [
         NearbyProfessionalRead(

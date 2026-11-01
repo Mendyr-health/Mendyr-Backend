@@ -9,9 +9,6 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 
-from app.core.constants import ProfessionalType
-from app.db.session import AsyncSessionLocal
-from app.models.service import Service, ServiceCategory
 from tests.conftest import set_config
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -41,26 +38,6 @@ async def _auto_approve_professionals():
     await set_config("verification", {"auto_approve": True})
     yield
     await set_config("verification", {"auto_approve": False})
-
-
-@pytest_asyncio.fixture(scope="module")
-async def nursing_service_id() -> str:
-    suffix = uuid.uuid4().hex[:8]
-    async with AsyncSessionLocal() as session:
-        category = ServiceCategory(name=f"Nursing {suffix}", slug=f"nursing-{suffix}")
-        session.add(category)
-        await session.flush()
-        service = Service(
-            category_id=category.id,
-            name="General Nursing Visit",
-            slug=f"general-nursing-{suffix}",
-            required_professional_type=ProfessionalType.NURSE,
-            duration_minutes=60,
-            base_price=1000,
-        )
-        session.add(service)
-        await session.commit()
-        return str(service.id)
 
 
 async def _register(client, role: str, name: str) -> dict[str, str]:

@@ -6,7 +6,7 @@ from geoalchemy2.shape import to_shape
 from sqlalchemy import Select, exists, or_, select
 from sqlalchemy.orm import aliased
 
-from app.core.constants import BookingStatus, Gender
+from app.core.constants import COMMITTED_STATUSES, BookingStatus, Gender
 from app.models.address import Address
 from app.models.booking import Booking, BookingStatusHistory, BookingVisit
 from app.models.professional import ProfessionalProfile
@@ -20,14 +20,6 @@ from app.repositories.professional_repo import available_at, utc_param
 PatientBookingRow = tuple[Booking, ProfessionalProfile | None, User | None, BookingVisit | None]
 ProfessionalBookingRow = tuple[Booking, User, Address | None, BookingVisit | None]
 OpenRequestRow = tuple[Booking, Address | None, float]
-
-# A professional holding a booking in one of these is busy for its time window.
-COMMITTED_STATUSES = (
-    BookingStatus.ASSIGNED,
-    BookingStatus.CONFIRMED,
-    BookingStatus.EN_ROUTE,
-    BookingStatus.IN_PROGRESS,
-)
 
 
 def busy_during(

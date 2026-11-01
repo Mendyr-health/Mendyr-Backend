@@ -1,7 +1,7 @@
 """Professional lookups, including the geospatial "who can serve this address" query."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from geoalchemy2.functions import ST_Distance, ST_DWithin, ST_GeogFromText
 from sqlalchemy import (
@@ -20,7 +20,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import settings
-from app.core.constants import ProfessionalType, VerificationStatus
+from app.core.constants import COMMITTED_STATUSES, ProfessionalType, VerificationStatus
+from app.models.booking import Booking
 from app.models.professional import (
     ProfessionalAvailabilitySlot,
     ProfessionalDocument,
@@ -136,6 +137,8 @@ class ProfessionalRepository(BaseRepository[ProfessionalProfile]):
         professional_type: ProfessionalType,
         location_wkt: str,
         at: datetime | None = None,
+        duration: timedelta | None = None,
+        travel_buffer: timedelta = timedelta(0),
         limit: int = 20,
     ) -> list[tuple[ProfessionalProfile, float]]:
         """Professionals who could take a booking for `service_id` at `location`, nearest
@@ -144,7 +147,8 @@ class ProfessionalRepository(BaseRepository[ProfessionalProfile]):
         - APPROVED and accepting bookings
         - qualified for the service (opted into it)
         - close enough: the location is inside their own travel radius
-        - free then, when `at` is given (see `available_at`)
+        - free then, when `at` is given: inside their timings (see `available_at`) and,
+          with `duration`, not already booked for an overlapping visit (± `travel_buffer`)
         """
         # location_wkt is a plain string ("POINT(lng lat)") — PostGIS has no ST_Distance
         # overload for (geography, varchar), so it must be cast explicitly rather than left
@@ -169,6 +173,15 @@ class ProfessionalRepository(BaseRepository[ProfessionalProfile]):
         ]
         if at is not None:
             conditions.append(available_at(ProfessionalProfile.id, utc_param("at", at)))
+        if at is not None and duration is not None:
+            conditions.append(
+                ~exists().where(
+                    Booking.professional_id == ProfessionalProfile.id,
+                    Booking.status.in_(COMMITTED_STATUSES),
+                    Booking.scheduled_start_at < at + duration + travel_buffer,
+                    Booking.scheduled_end_at + travel_buffer > at,
+                )
+            )
 
         stmt = (
             select(ProfessionalProfile, distance_col)

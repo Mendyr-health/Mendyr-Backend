@@ -3,6 +3,8 @@
 Assumes a Postgres+PostGIS instance is reachable via the same `.env` settings used by the app
 (point `POSTGRES_*` at a disposable test database — CI should provision one per run).
 """
+
+import uuid
 from collections.abc import AsyncGenerator
 
 import pytest_asyncio
@@ -10,11 +12,13 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.constants import ProfessionalType
 from app.core.rate_limit import limiter
 from app.db.base_class import Base
 from app.db.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.config import Config
+from app.models.service import Service, ServiceCategory
 from app.services.config_service import invalidate_config_cache
 
 _LOCAL_HOST_MARKERS = ("localhost", "127.0.0.1", "::1")
@@ -76,3 +80,23 @@ async def set_config(key: str, value: object) -> None:
             )
         await session.commit()
     invalidate_config_cache()
+
+
+@pytest_asyncio.fixture(scope="session")
+async def nursing_service_id() -> str:
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as session:
+        category = ServiceCategory(name=f"Nursing {suffix}", slug=f"nursing-{suffix}")
+        session.add(category)
+        await session.flush()
+        service = Service(
+            category_id=category.id,
+            name="General Nursing Visit",
+            slug=f"general-nursing-{suffix}",
+            required_professional_type=ProfessionalType.NURSE,
+            duration_minutes=60,
+            base_price=1000,
+        )
+        session.add(service)
+        await session.commit()
+        return str(service.id)
