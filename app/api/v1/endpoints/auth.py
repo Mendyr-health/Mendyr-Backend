@@ -16,7 +16,7 @@ from app.core.exceptions import UnauthorizedError
 from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import LoginIn, RefreshTokenIn, RegisterIn, TokenPair
+from app.schemas.auth import ChangePasswordIn, LoginIn, RefreshTokenIn, RegisterIn, TokenPair
 from app.schemas.common import MessageResponse
 from app.schemas.user import UserRead
 from app.services.auth_service import AuthService
@@ -159,3 +159,23 @@ async def logout(
         await AuthService(db).logout(current_user.id)
     _clear_session_cookies(response)
     return MessageResponse(message="Logged out.")
+
+
+@router.post("/change-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
+async def change_password(
+    request: Request,
+    response: Response,
+    payload: ChangePasswordIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Change the logged-in user's password after verifying their current password.
+    Revokes all active refresh tokens and clears session cookies, requiring a fresh login."""
+    await AuthService(db).change_password(
+        current_user,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+    )
+    _clear_session_cookies(response)
+    return MessageResponse(message="Password changed successfully. Please log in again.")

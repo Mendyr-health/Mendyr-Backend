@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.constants import Gender, UserRole, UserStatus
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, UnauthorizedError, ValidationAppError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -178,4 +178,27 @@ class AuthService:
 
     async def logout(self, user_id: uuid.UUID) -> None:
         await self.refresh_tokens.revoke_all_for_user(user_id, now=datetime.now(UTC))
+        await self.session.flush()
+
+    async def change_password(
+        self,
+        user: User,
+        *,
+        current_password: str,
+        new_password: str,
+    ) -> None:
+        """Verify the user's current password and replace it with new_password, revoking
+        all active refresh tokens."""
+        if not user.hashed_password or not verify_password(current_password, user.hashed_password):
+            raise UnauthorizedError("Incorrect current password.")
+
+        if current_password == new_password:
+            raise ValidationAppError("New password must be different from current password.")
+
+        if len(new_password) < 8:
+            raise ValidationAppError("New password must be at least 8 characters.")
+
+        user.hashed_password = hash_password(new_password)
+        now = datetime.now(UTC)
+        await self.refresh_tokens.revoke_all_for_user(user.id, now=now)
         await self.session.flush()

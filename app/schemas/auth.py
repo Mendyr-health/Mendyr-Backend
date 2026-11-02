@@ -127,3 +127,14 @@ class RefreshTokenIn(BaseModel):
     # Optional: browser clients can't read their httponly refresh cookie, so they send no
     # body and the endpoint falls back to the cookie instead.
     refresh_token: str | None = None
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def _passwords_must_differ(self) -> "ChangePasswordIn":
+        if self.current_password == self.new_password:
+            raise ValueError("New password must be different from current password.")
+        return self

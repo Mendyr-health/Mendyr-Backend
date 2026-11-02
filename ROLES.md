@@ -120,6 +120,17 @@ its sessions are signed out, and the reset is logged. Works for patients, profes
 admins and ops; **super admin accounts are always skipped**. Tick "dry run" to check the
 emails first. Locally: `uv run python -m scripts.reset_password --users "a@x.com, b@y.com"`.
 
+## Changing a password
+
+**GitHub Actions → "Change user password" → Run workflow** — enter the account's email, its
+current/existing password, and the desired new password (at least 8 characters). Verifies the
+existing password first before updating, revokes all existing refresh tokens (signing out
+all sessions), and logs the event in the audit trail. Works for all accounts (including
+super admin). Tick "dry run" to verify the existing password without making any change.
+Locally: `uv run python -m scripts.change_password --email user@example.com` (prompts
+interactively for passwords) or via flags `--existing-password` / `--new-password`.
+API endpoint: `POST /api/v1/auth/change-password` (authenticated Bearer token).
+
 ## Where this lives in code
 - Role guards: `app/core/permissions.py` (`require_admin` = admin + super_admin;
   `require_ops_or_admin` = ops + admin + super_admin)
