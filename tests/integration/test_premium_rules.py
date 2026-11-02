@@ -314,3 +314,29 @@ async def test_saved_queries_and_tickets_are_not_open_to_everyone(client):
         json={"message": "Hijack"},
     )
     assert response.status_code == 403
+
+
+async def test_saving_an_existing_config_and_query_again_works(client):
+    admin = await _admin(client)
+    for value in ({"hindi": False}, {"hindi": True}, {"hindi": True, "prescription_upload": True}):
+        saved = _data(
+            await client.put(
+                "/api/v1/configs/by-key/app.features", headers=admin, json={"value": value}
+            )
+        )
+        assert saved["value"]["hindi"] == value["hindi"]
+    toggled = _data(await client.patch(f"/api/v1/configs/{saved['id']}/toggle", headers=admin))
+    assert toggled["is_active"] is False and toggled["updated_at"]
+    await client.delete(f"/api/v1/configs/{saved['id']}", headers=admin)
+
+    query = _data(
+        await client.post(
+            "/api/v1/analytics",
+            headers=admin,
+            json={"name": f"q_{uuid.uuid4().hex[:6]}", "query": "SELECT 1 AS one"},
+        )
+    )
+    edited = await client.patch(
+        f"/api/v1/analytics/{query['id']}", headers=admin, json={"batch_size": 10}
+    )
+    assert edited.status_code == 200, edited.text

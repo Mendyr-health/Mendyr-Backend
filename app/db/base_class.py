@@ -37,6 +37,12 @@ class TimestampMixin:
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # Read the database-set timestamps back (RETURNING) as part of each INSERT/UPDATE.
+    # Otherwise they're left expired, and serializing the object after the request's async
+    # session work is done tries to lazy-load them and fails with MissingGreenlet — which
+    # made every second save of a config a 500.
+    __mapper_args__ = {"eager_defaults": True}
+
 
 class SoftDeleteMixin:
     """Nullable deleted_at — repositories must filter `deleted_at.is_(None)` by default."""
