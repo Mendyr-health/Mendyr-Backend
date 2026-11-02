@@ -23,7 +23,12 @@ from geoalchemy2.shape import to_shape
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_registry import BookingRules, FeatureFlags, PrivacyConfig
-from app.core.constants import BookingStatus, BookingType, VerificationStatus
+from app.core.constants import (
+    COMMITTED_STATUSES,
+    BookingStatus,
+    BookingType,
+    VerificationStatus,
+)
 from app.core.exceptions import (
     ConflictError,
     ForbiddenError,
@@ -50,6 +55,7 @@ from app.schemas.booking import (
     StatusEvent,
 )
 from app.services.config_service import ConfigService
+from app.services.document_service import DocumentService
 from app.services.notification_service import NotificationService
 from app.services.pricing_service import PriceBreakdown, PricingService
 
@@ -423,28 +429,37 @@ class BookingService:
             raise NotFoundError("Booking not found.")
         review_rating = await self.bookings.get_review_rating(booking_id)
         history = await self.bookings.list_status_history(booking_id)
-        return to_patient_read(
+        documents = DocumentService(self.session)
+        read = to_patient_read(
             row,
             review_rating=review_rating,
             history=history,
             privacy=await self.config.typed("privacy", PrivacyConfig),
             features=await self._features(),
         )
+        read.documents = [documents.medical_out(d) for d in await documents.for_booking(booking_id)]
+        return read
 
     async def professional_reads(
         self, rows: list[ProfessionalBookingRow], professional: ProfessionalProfile
     ) -> list[ProfessionalBookingRead]:
         privacy = await self.config.typed("privacy", PrivacyConfig)
         features = await self._features()
-        return [
-            to_professional_read(
+        documents = DocumentService(self.session)
+        attached = await documents.for_bookings([row[0].id for row in rows])
+        reads = []
+        for row in rows:
+            read = to_professional_read(
                 row,
                 privacy=privacy,
                 features=features,
                 professional_user_id=professional.user_id,
             )
-            for row in rows
-        ]
+            # Same rule as contact details: only while the visit is live.
+            if not read.contact_hidden and read.status in COMMITTED_STATUSES:
+                read.documents = [documents.medical_out(d) for d in attached.get(read.id, [])]
+            reads.append(read)
+        return reads
 
     async def professional_view(
         self, booking_id: uuid.UUID, professional: ProfessionalProfile

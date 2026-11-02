@@ -169,3 +169,42 @@ If you'd rather not run an always-on worker at all, the periodic jobs
 protected HTTP endpoints triggered by an external scheduler (GitHub Actions cron, cron-job.org,
 Supabase's `pg_cron`) instead of Celery beat — that's a real code change, not just config, so
 it's not done here; ask if you want that built out.
+
+## File storage (documents & prescriptions)
+
+KYC documents and patient prescriptions live in a **private** S3-compatible bucket. The API
+never handles file bytes: apps get a presigned upload URL, PUT the file straight to the
+bucket, then record it; every view is a fresh link valid for `DOWNLOAD_URL_TTL_SECONDS`
+(5 minutes). Allowed: PDF, JPG, PNG, WEBP, HEIC — up to `UPLOAD_MAX_BYTES` (10 MB).
+
+### Filebase setup
+1. In Filebase create an **Object Storage** bucket (not an IPFS bucket — IPFS files are
+   public). Keep it private.
+2. Create an access key pair.
+3. Set the backend env:
+   ```bash
+   fastapi cloud env set S3_ENDPOINT_URL https://s3.filebase.io
+   fastapi cloud env set S3_REGION auto
+   fastapi cloud env set S3_BUCKET <bucket-name>
+   fastapi cloud env set AWS_ACCESS_KEY_ID <key>
+   fastapi cloud env set AWS_SECRET_ACCESS_KEY <secret> --secret
+   ```
+4. Allow browser uploads/views from the web app and portal (the mobile app doesn't need
+   this). Save as `cors.json`:
+   ```json
+   {"CORSRules": [{
+     "AllowedOrigins": ["https://<web-app-domain>", "https://<portal-domain>", "http://localhost:3000", "http://localhost:3010"],
+     "AllowedMethods": ["GET", "PUT", "HEAD"],
+     "AllowedHeaders": ["*"],
+     "MaxAgeSeconds": 3000
+   }]}
+   ```
+   then `aws --endpoint https://s3.filebase.io s3api put-bucket-cors --bucket <bucket-name> --cors-configuration file://cors.json`
+   (with the Filebase key configured in the AWS CLI).
+
+Any other S3-compatible store works the same way (AWS: leave `S3_ENDPOINT_URL` empty and set
+the region; Cloudflare R2: its account endpoint, region `auto`).
+
+Release note: this storage work adds migration `a7c3e9d41b20` (`medical_documents` table, and
+`super_admin` in `user_role` if missing). Run `alembic upgrade head` against the database
+before deploying it.

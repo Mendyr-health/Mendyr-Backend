@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_professional, get_current_user, pagination_params
-from app.core.exceptions import NotFoundError
+from app.core.config_registry import FeatureFlags
+from app.core.exceptions import NotFoundError, ValidationAppError
 from app.core.permissions import require_patient
 from app.db.session import get_db
 from app.models.address import Address
@@ -28,6 +29,8 @@ from app.schemas.booking import (
 from app.schemas.common import PaginationParams
 from app.services.booking_service import BookingService, to_request_read
 from app.services.catalog_service import CatalogService
+from app.services.config_service import ConfigService
+from app.services.document_service import DocumentService
 from app.services.payment_service import PaymentService
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -56,10 +59,26 @@ async def create_booking(
     if address is None:
         raise NotFoundError("Address not found.")
 
+    documents = DocumentService(db)
+    features = await ConfigService(db).typed("app.features", FeatureFlags)
+    if (
+        service.requires_prescription
+        and features.prescription_upload
+        and not await documents.has_prescription(payload.document_ids, current_user.id)
+    ):
+        raise ValidationAppError(
+            f"{service.name} needs a doctor's prescription — please attach one.",
+            code="prescription_required",
+        )
+
     booking_service = BookingService(db)
     booking = await booking_service.create_booking(
         patient_id=current_user.id, service=service, address=address, payload=payload
     )
+    if payload.document_ids:
+        await documents.attach_many(
+            payload.document_ids, user_id=current_user.id, booking_id=booking.id
+        )
     return await booking_service.patient_view(booking.id)
 
 
@@ -93,7 +112,11 @@ async def list_open_requests(
     """Open bookings this professional can accept: their profession and services, inside
     their travel radius, starting within their weekly timings. Soonest first."""
     rows = await BookingService(db).list_open_requests(professional)
-    return [to_request_read(row) for row in rows]
+    attached = await DocumentService(db).for_bookings([row[0].id for row in rows])
+    reads = [to_request_read(row) for row in rows]
+    for read in reads:
+        read.has_documents = read.id in attached
+    return reads
 
 
 @router.get("/professional/mine", response_model=list[ProfessionalBookingRead])

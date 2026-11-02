@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.core.constants import (
     AvailabilityStatus,
-    DocumentType,
     ProfessionalType,
     VerificationStatus,
 )
@@ -41,19 +40,6 @@ class ProfessionalUpdateIn(BaseModel):
     location: GeoPoint | None = None
     service_radius_km: float | None = Field(default=None, ge=1, le=50)
     is_accepting_bookings: bool | None = None
-
-
-class ProfessionalDocumentUploadIn(BaseModel):
-    document_type: DocumentType
-    file_url: str
-
-
-class ProfessionalDocumentRead(ORMModel):
-    id: uuid.UUID
-    document_type: DocumentType
-    file_url: str
-    verification_status: VerificationStatus
-    rejection_reason: str | None
 
 
 class ProfessionalReviewDecisionIn(BaseModel):

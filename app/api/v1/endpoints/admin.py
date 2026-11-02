@@ -30,6 +30,7 @@ from app.schemas.admin import (
 )
 from app.schemas.admin_analytics import DashboardOverviewOut
 from app.schemas.common import MessageResponse
+from app.schemas.document import DocumentReviewIn
 from app.schemas.professional import ProfessionalRead, ProfessionalReviewDecisionIn
 from app.schemas.service import (
     CategoryAdminRead,
@@ -40,6 +41,7 @@ from app.schemas.service import (
 from app.services.admin_analytics_service import AdminAnalyticsService
 from app.services.admin_service import AdminService
 from app.services.catalog_service import CatalogService
+from app.services.document_service import DocumentService
 from app.services.professional_service import ProfessionalService, to_professional_read
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -108,6 +110,41 @@ async def review_professional(
     """Approve, reject (with a reason the professional sees) or mark in review. Super admins
     only; the professional is notified and the decision is logged."""
     await ProfessionalService(db).review_kyc(professional_id, decision, reviewer_id=current_user.id)
+    return await AdminService(db).get_professional(professional_id)
+
+
+@router.post(
+    "/professionals/{professional_id}/documents/{document_id}/review",
+    response_model=AdminProfessionalDetail,
+)
+async def review_document(
+    professional_id: uuid.UUID,
+    document_id: uuid.UUID,
+    payload: DocumentReviewIn,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminProfessionalDetail:
+    """Approve or reject one document (a rejection asks the professional to re-upload)."""
+    await DocumentService(db).review_professional(
+        document_id, professional_id, payload, actor_id=current_user.id
+    )
+    return await AdminService(db).get_professional(professional_id)
+
+
+@router.delete(
+    "/professionals/{professional_id}/documents/{document_id}",
+    response_model=AdminProfessionalDetail,
+)
+async def delete_document(
+    professional_id: uuid.UUID,
+    document_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AdminProfessionalDetail:
+    """Remove a document and its file (e.g. an approved one that has to be replaced)."""
+    await DocumentService(db).admin_delete_professional(
+        document_id, professional_id, actor_id=current_user.id
+    )
     return await AdminService(db).get_professional(professional_id)
 
 

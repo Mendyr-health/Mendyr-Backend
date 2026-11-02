@@ -52,6 +52,7 @@ from app.schemas.booking import StatusEvent
 from app.services.audit_service import AuditService
 from app.services.booking_service import BookingService
 from app.services.config_service import ConfigService
+from app.services.document_service import DocumentService
 from app.services.notification_service import NotificationService
 
 
@@ -214,15 +215,7 @@ class AdminService:
             latitude=point.y if point else None,
             longitude=point.x if point else None,
             documents=[
-                AdminDocument(
-                    id=d.id,
-                    document_type=d.document_type,
-                    file_url=d.file_url,
-                    verification_status=d.verification_status,
-                    rejection_reason=d.rejection_reason,
-                    reviewed_at=d.reviewed_at,
-                    created_at=d.created_at,
-                )
+                AdminDocument(**DocumentService(self.session).professional_out(d).model_dump())
                 for d in documents
             ],
             services=list(services),
@@ -506,6 +499,7 @@ class AdminService:
             await self.session.execute(select(Review.rating).where(Review.booking_id == booking.id))
         ).scalar_one_or_none()
         item = self._booking_item(booking, patient, pro_user, address)
+        docs = DocumentService(self.session)
         return AdminBookingDetail(
             **item.model_dump(),
             address=booking.address_snapshot,
@@ -527,6 +521,7 @@ class AdminService:
             timeline=[
                 StatusEvent(status=h.to_status, at=h.created_at, note=h.reason) for h in history
             ],
+            documents=[docs.medical_out(d) for d in await docs.for_booking(booking.id)],
         )
 
     async def cancel_booking(self, booking_id: uuid.UUID, reason: str, *, actor: User) -> None:

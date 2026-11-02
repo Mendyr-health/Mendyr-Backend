@@ -16,6 +16,7 @@ from app.core.constants import (
     VerificationStatus,
 )
 from app.schemas.booking import StatusEvent
+from app.schemas.document import MedicalDocumentOut
 
 T = TypeVar("T")
 
@@ -58,9 +59,11 @@ class AdminProfessionalListItem(BaseModel):
 class AdminDocument(BaseModel):
     id: uuid.UUID
     document_type: DocumentType
-    file_url: str
     verification_status: VerificationStatus
     rejection_reason: str | None
+    content_type: str | None
+    # Short-lived link to the private file — fetch the detail again rather than storing it.
+    view_url: str
     reviewed_at: datetime | None
     created_at: datetime
 
@@ -168,6 +171,7 @@ class AdminBookingDetail(AdminBookingListItem):
     vitals_recorded: str | None
     review_rating: int | None
     timeline: list[StatusEvent]
+    documents: list[MedicalDocumentOut] = []
 
 
 class AdminCancelIn(BaseModel):

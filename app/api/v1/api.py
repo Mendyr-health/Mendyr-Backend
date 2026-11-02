@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     configs,
     geo,
     health,
+    medical_documents,
     notifications,
     payments,
     professionals,
@@ -41,4 +42,5 @@ api_router.include_router(admin.router)
 api_router.include_router(configs.router)
 api_router.include_router(geo.router)
 api_router.include_router(notifications.router)
+api_router.include_router(medical_documents.router)
 api_router.include_router(query_info.router)

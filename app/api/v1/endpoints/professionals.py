@@ -19,13 +19,17 @@ from app.models.professional import ProfessionalProfile
 from app.models.user import User
 from app.repositories.professional_repo import ProfessionalRepository
 from app.schemas.common import MessageResponse
+from app.schemas.document import (
+    ProfessionalDocumentIn,
+    ProfessionalDocumentOut,
+    UploadUrlIn,
+    UploadUrlOut,
+)
 from app.schemas.professional import (
     AvailabilitySlotIn,
     AvailabilitySlotRead,
     AvailabilityStatusUpdateIn,
     NearbyProfessionalRead,
-    ProfessionalDocumentRead,
-    ProfessionalDocumentUploadIn,
     ProfessionalOnboardIn,
     ProfessionalRead,
     ProfessionalServiceRead,
@@ -34,8 +38,9 @@ from app.schemas.professional import (
 )
 from app.services.catalog_service import CatalogService
 from app.services.config_service import ConfigService
+from app.services.document_service import DocumentService
 from app.services.professional_service import ProfessionalService, to_professional_read
-from app.services.storage_service import StorageService
+from app.services.storage_service import StorageService, kyc_folder
 
 router = APIRouter(prefix="/professionals", tags=["professionals"])
 
@@ -68,25 +73,49 @@ async def update_my_profile(
     return to_professional_read(profile)
 
 
-@router.post("/me/documents/upload-url")
+@router.post("/me/documents/upload-url", response_model=UploadUrlOut)
 async def get_document_upload_url(
-    filename: str, content_type: str, current_user: User = Depends(require_professional)
+    payload: UploadUrlIn, professional: ProfessionalProfile = Depends(get_current_professional)
 ) -> dict:
-    """Returns a presigned S3 PUT URL; the app uploads bytes directly, then calls
-    POST /professionals/me/documents with the returned `file_url` to record it."""
-    profile_id = current_user.id  # object key namespaced by user id is sufficient pre-onboarding
-    return StorageService().presign_kyc_upload(
-        professional_id=str(profile_id), filename=filename, content_type=content_type
+    """A presigned PUT URL for one KYC file (PDF or photo, size-checked). Upload the bytes
+    there with the returned headers, then record it with `POST /me/documents`."""
+    return StorageService().presign_upload(
+        folder=kyc_folder(professional.id),
+        content_type=payload.content_type,
+        size_bytes=payload.size_bytes,
     )
 
 
-@router.post("/me/documents", response_model=ProfessionalDocumentRead)
-async def upload_document(
-    payload: ProfessionalDocumentUploadIn,
+@router.get("/me/documents", response_model=list[ProfessionalDocumentOut])
+async def list_my_documents(
     professional: ProfessionalProfile = Depends(get_current_professional),
     db: AsyncSession = Depends(get_db),
-) -> ProfessionalDocumentRead:
-    return await ProfessionalService(db).upload_document(professional.id, payload)
+) -> list[ProfessionalDocumentOut]:
+    """Uploaded KYC documents with their review status and short-lived view links."""
+    service = DocumentService(db)
+    return [service.professional_out(d) for d in await service.list_professional(professional.id)]
+
+
+@router.post("/me/documents", response_model=ProfessionalDocumentOut, status_code=201)
+async def add_document(
+    payload: ProfessionalDocumentIn,
+    professional: ProfessionalProfile = Depends(get_current_professional),
+    db: AsyncSession = Depends(get_db),
+) -> ProfessionalDocumentOut:
+    """Record an uploaded file. Replaces a pending/rejected document of the same type."""
+    service = DocumentService(db)
+    return service.professional_out(await service.add_professional(professional, payload))
+
+
+@router.delete("/me/documents/{document_id}", response_model=MessageResponse)
+async def delete_document(
+    document_id: uuid.UUID,
+    professional: ProfessionalProfile = Depends(get_current_professional),
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Remove a pending or rejected document (verified ones stay — ask support)."""
+    await DocumentService(db).delete_own_professional(document_id, professional)
+    return MessageResponse(message="Document removed.")
 
 
 @router.get("/me/availability/slots", response_model=list[AvailabilitySlotRead])

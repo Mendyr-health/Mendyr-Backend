@@ -43,6 +43,13 @@ MIGRATION_MARKERS: list[tuple[str, str, Callable[[Inspector], bool]]] = [
         "add extended_attributes and configs table",
         lambda insp: insp.has_table("configs"),
     ),
+    ("268cb9f2b343", "add refresh_tokens table", lambda insp: insp.has_table("refresh_tokens")),
+    ("cfbd30735ff6", "add query_info table", lambda insp: insp.has_table("query_info")),
+    (
+        "a7c3e9d41b20",
+        "add medical_documents table",
+        lambda insp: insp.has_table("medical_documents"),
+    ),
 ]
 
 

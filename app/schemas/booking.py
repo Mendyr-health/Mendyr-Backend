@@ -6,6 +6,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 
 from app.core.constants import BookingStatus, BookingType
 from app.schemas.common import ORMModel
+from app.schemas.document import MedicalDocumentOut
 from app.schemas.professional import ProfessionalPublicRead
 
 
@@ -24,6 +25,8 @@ class BookingCreateIn(BaseModel):
     preferred_professional_id: uuid.UUID | None = None
     # Only professionals of this gender see the request (feature flag `gender_preference`).
     preferred_gender: Literal["female", "male"] | None = None
+    # The patient's own uploaded medical documents to share with the professional.
+    document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
 
 
 class BookingQuoteIn(BaseModel):
@@ -103,6 +106,7 @@ class BookingRead(ORMModel):
     completed_at: datetime | None = None
     contact_hidden: bool = False
     timeline: list[StatusEvent] = Field(default_factory=list)
+    documents: list[MedicalDocumentOut] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -132,6 +136,8 @@ class BookingRequestRead(BaseModel):
     earning_amount: float
     patient_notes: str | None
     preferred_gender: str | None = None
+    # A prescription/report is attached; visible once accepted.
+    has_documents: bool = False
     created_at: datetime
 
 
@@ -168,6 +174,8 @@ class ProfessionalBookingRead(BaseModel):
     # True when check-in must include the patient's visit PIN.
     requires_visit_pin: bool = False
     contact_hidden: bool = False
+    # The patient's attached prescriptions/reports — only while the visit is live.
+    documents: list[MedicalDocumentOut] = Field(default_factory=list)
     created_at: datetime
 
 

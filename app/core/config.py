@@ -158,12 +158,23 @@ class Settings(BaseSettings):
     FCM_CREDENTIALS_JSON: str = ""
 
     # ── Storage ──────────────────────────────────────────────────────────
+    # Any S3-compatible object store. Filebase (private object storage, NOT its IPFS
+    # endpoint): S3_ENDPOINT_URL=https://s3.filebase.io, S3_REGION=auto. AWS: leave the
+    # endpoint empty and set the region. The bucket must be private — files are only ever
+    # reached through short-lived presigned URLs.
     S3_BUCKET: str = "mendyr-dev"
     S3_REGION: str = "ap-south-1"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     S3_ENDPOINT_URL: str | None = None
+    # "path" (bucket in the URL path) works on every S3-compatible provider; "auto" lets
+    # boto pick virtual-hosted style, which AWS prefers.
+    S3_ADDRESSING_STYLE: Literal["auto", "path", "virtual"] = "path"
+    # How long an upload URL stays valid.
     PRESIGNED_URL_TTL_SECONDS: int = 900
+    # How long a link to view a document stays valid — short, since these are medical/KYC files.
+    DOWNLOAD_URL_TTL_SECONDS: int = 300
+    UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
 
     # ── Maps ─────────────────────────────────────────────────────────────
     GOOGLE_MAPS_API_KEY: str = ""

@@ -14,7 +14,6 @@ from app.core.constants import ProfessionalType, VerificationStatus
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.models.professional import (
     ProfessionalAvailabilitySlot,
-    ProfessionalDocument,
     ProfessionalProfile,
     ProfessionalSpecialization,
 )
@@ -25,7 +24,6 @@ from app.schemas.common import GeoPoint
 from app.schemas.professional import (
     AvailabilitySlotIn,
     AvailabilityStatusUpdateIn,
-    ProfessionalDocumentUploadIn,
     ProfessionalOnboardIn,
     ProfessionalRead,
     ProfessionalReviewDecisionIn,
@@ -154,19 +152,6 @@ class ProfessionalService:
         await self.session.flush()
         return profile
 
-    async def upload_document(
-        self, professional_id: uuid.UUID, payload: ProfessionalDocumentUploadIn
-    ) -> ProfessionalDocument:
-        document = ProfessionalDocument(
-            professional_id=professional_id,
-            document_type=payload.document_type,
-            file_url=payload.file_url,
-            verification_status=VerificationStatus.PENDING,
-        )
-        self.session.add(document)
-        await self.session.flush()
-        return document
-
     async def review_kyc(
         self,
         professional_id: uuid.UUID,
@@ -205,12 +190,17 @@ class ProfessionalService:
                 "Our team is checking your details. This usually takes a day.",
             )
 
-        # Documents follow the profile decision; per-document review isn't exposed yet.
-        for document in await self.professionals.list_documents(profile.id):
-            if decision.decision in ("approved", "rejected"):
-                document.verification_status = profile.verification_status
-                document.reviewed_by_id = reviewer_id
-                document.reviewed_at = now
+        # Approving the profile signs off any documents not yet reviewed one by one. A profile
+        # rejection is about the profile; documents keep their own (per-document) decisions.
+        if decision.decision == "approved":
+            for document in await self.professionals.list_documents(profile.id):
+                if document.verification_status in (
+                    VerificationStatus.PENDING,
+                    VerificationStatus.IN_REVIEW,
+                ):
+                    document.verification_status = VerificationStatus.APPROVED
+                    document.reviewed_by_id = reviewer_id
+                    document.reviewed_at = now
 
         AuditService(self.session).log(
             actor_id=reviewer_id,
