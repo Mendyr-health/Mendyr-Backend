@@ -32,8 +32,8 @@ fastapi cloud env set CORS_ORIGINS '["https://localhost","capacitor://localhost"
 
 Then `fastapi deploy`, and set `BACKEND_URL=https://<your-app>.fastapicloud.dev` on the Vercel
 project. Requests arrive with the API's own hostname, so `ALLOWED_HOSTS` can stay `["*"]` or be
-set to `["<your-app>.fastapicloud.dev"]`. No migration is needed for the MVP branch; seed demo
-accounts with the "Seed demo data" workflow if you want them.
+set to `["<your-app>.fastapicloud.dev"]`. No migration is needed for the MVP branch; seed test
+accounts with the "Seed dummy users" workflow if you want them (see DUMMY_USERS.md).
 
 ## What it does and doesn't do — read this first
 

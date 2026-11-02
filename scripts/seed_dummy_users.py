@@ -25,7 +25,7 @@ from app.core.constants import Gender, ProfessionalType, UserRole
 from app.db.session import AsyncSessionLocal
 from app.models.service import Service
 from app.services.wallet_service import WalletService
-from scripts.seed_demo_data import (
+from scripts.seed_helpers import (
     DEMO_PASSWORD,
     _ensure_address,
     _ensure_professional,

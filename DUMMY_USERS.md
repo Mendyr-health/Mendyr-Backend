@@ -189,14 +189,6 @@ logging in as the patient there replaces the professional's login.
 
 ## Removing the accounts
 
-There is no delete mode for these accounts yet. Once you've tested with them they have bookings,
-and the demo-data delete script (`scripts/delete_demo_data.py`) only handles accounts without
-any. Use the user-cleanup script instead (on the `test-deluser` branch until merged), passing the
+There is no delete mode for these accounts yet. Once you've tested with them they have bookings.
+Use the user-cleanup script (on the `test-deluser` branch until merged), passing the
 `*.dummy@mendyr.app` emails. Re-running the seed afterwards recreates them.
-
-## Related
-
-The smaller presentation dataset (`asha.patel.demo@mendyr.app` plus three professionals, same
-password) comes from `scripts/seed_demo_data.py` and the **Seed demo data** workflow. It is
-separate from these accounts and lives near MG Road, so its professionals also see bookings
-from many of the patients above.

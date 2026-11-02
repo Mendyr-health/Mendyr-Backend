@@ -8,7 +8,7 @@ name: Seed dummy users
 # Bengaluru, so any patient's booking reaches nearby professionals' request lists.
 #
 # Idempotent (accounts are matched by email), so re-running it is safe. Every account uses
-# the `*.dummy@mendyr.app` suffix and the demo password from scripts/seed_demo_data.py (not a
+# the `*.dummy@mendyr.app` suffix and the demo password from scripts/seed_helpers.py (not a
 # secret) — the script prints every credential to this run's log.
 on:
   workflow_dispatch:

@@ -373,13 +373,13 @@ curl http://localhost:8000/api/v1/services/categories
 
 Interactive docs: http://localhost:8000/docs
 
-Try logging in. `uv run python -m scripts.seed_demo_data` creates a demo patient and
-professionals (password `Demo@12345`) near MG Road, Bengaluru:
+Try logging in. `make seed && make seed-dummy` creates the service catalogue and 30 test
+accounts (password `Demo@12345`) around Bengaluru — see DUMMY_USERS.md:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" -H "X-Client-Platform: android" \
-  -d '{"email":"asha.patel.demo@mendyr.app","password":"Demo@12345"}'
+  -d '{"email":"patient01.dummy@mendyr.app","password":"Demo@12345"}'
 # returns {"success": true, "data": {"access_token": "...", "refresh_token": "...", "user": {...}}}
 ```
 
