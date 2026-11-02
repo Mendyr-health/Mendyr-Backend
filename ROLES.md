@@ -112,6 +112,14 @@ Locally (with `POSTGRES_*` pointing at the right database):
 uv run python -m scripts.create_admin promote --email person@example.com --role ops
 ```
 
+## Resetting a password
+
+**GitHub Actions → "Reset user password" → Run workflow** — enter one or more emails
+(comma-separated). Each account gets a new random password printed once in the run log, all
+its sessions are signed out, and the reset is logged. Works for patients, professionals,
+admins and ops; **super admin accounts are always skipped**. Tick "dry run" to check the
+emails first. Locally: `uv run python -m scripts.reset_password --users "a@x.com, b@y.com"`.
+
 ## Where this lives in code
 - Role guards: `app/core/permissions.py` (`require_admin` = admin + super_admin;
   `require_ops_or_admin` = ops + admin + super_admin)
