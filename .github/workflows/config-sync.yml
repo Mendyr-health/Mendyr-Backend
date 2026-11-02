@@ -1,0 +1,80 @@
+name: App config backup & restore
+
+# Manual-only. Keeps the portal-edited app config (feature flags, theme, banners, booking
+# rules, pricing…) when the database changes. See scripts/config_sync.py.
+#
+#   export   — read every config row from the database in the POSTGRES_* secrets and attach
+#              it as a downloadable artifact (app-configs.json). Read-only.
+#   import   — write config/app_configs.json from the selected branch into the database.
+#              Keys the database already has are kept unless "overwrite" is ticked.
+#   defaults — give every registered key a row with its default, where it has none yet.
+#
+# Typical database move: run `export` against the old database → download the artifact →
+# commit it as config/app_configs.json → point the POSTGRES_* secrets at the new database →
+# run `alembic upgrade head` (migrate.yml) → run `import`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: "export (DB → file), import (file → DB) or defaults (seed missing keys)"
+        options: [export, import, defaults]
+        default: export
+      overwrite:
+        type: boolean
+        description: "import only: replace keys the database already has"
+        default: false
+      dry_run:
+        type: boolean
+        description: "import/defaults only: show what would change without writing"
+        default: true
+
+jobs:
+  config-sync:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+      POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_SSL_REQUIRED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Export configs
+        if: inputs.mode == 'export'
+        run: uv run python -m scripts.config_sync export --file app-configs.json
+
+      - name: Upload export
+        if: inputs.mode == 'export'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-configs
+          path: app-configs.json
+          retention-days: 30
+
+      - name: Import configs
+        if: inputs.mode == 'import'
+        run: |
+          ARGS="--file config/app_configs.json"
+          if [ "${{ inputs.overwrite }}" = "true" ]; then ARGS="$ARGS --overwrite"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          uv run python -m scripts.config_sync import $ARGS
+
+      - name: Seed defaults
+        if: inputs.mode == 'defaults'
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="--dry-run"; fi
+          uv run python -m scripts.config_sync defaults $ARGS

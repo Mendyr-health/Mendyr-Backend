@@ -208,3 +208,19 @@ the region; Cloudflare R2: its account endpoint, region `auto`).
 Release note: this storage work adds migration `a7c3e9d41b20` (`medical_documents` table, and
 `super_admin` in `user_role` if missing). Run `alembic upgrade head` against the database
 before deploying it.
+
+## Moving to a new database — keep the app config
+
+Portal edits (feature flags, theme, banners, booking rules, pricing…) live only in the
+`configs` table. Before switching databases:
+
+1. **Actions → "App config backup & restore" → mode `export`** (against the old database).
+   Download the `app-configs` artifact and commit it as `config/app_configs.json`.
+2. Point the `POSTGRES_*` secrets (and the FastAPI Cloud env) at the new database and run
+   migrations (`alembic upgrade head`).
+3. Run the workflow with mode **`import`** — first with "dry run" ticked to see what it will
+   do, then without. Keys the new database already has are kept unless "overwrite" is ticked.
+
+A fresh database with no config rows still works on built-in defaults; mode **`defaults`**
+just creates those rows so they appear in the portal. Locally: `uv run python -m
+scripts.config_sync export|import|defaults` (see the script's docstring).
