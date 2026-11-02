@@ -9,6 +9,9 @@ Usage:
     # Promote an existing user (created via normal signup) to admin:
     uv run python -m scripts.create_admin promote --email you@example.com
 
+    # ...or to super_admin / ops:
+    uv run python -m scripts.create_admin promote --email you@example.com --role ops
+
     # Bootstrap a brand-new admin account (e.g. the very first admin on a fresh DB):
     uv run python -m scripts.create_admin create \\
         --email you@example.com --phone +919876500000 --full-name "Jane Doe"
@@ -26,6 +29,7 @@ Password: set $ADMIN_PASSWORD before running, or leave it unset to be prompted i
 (hidden input). Never pass it as a `--password` flag — it would end up in shell history and
 process listings.
 """
+
 import argparse
 import asyncio
 import getpass
@@ -44,6 +48,9 @@ from app.models.audit import AuditLog
 from app.models.user import User
 
 REFERRAL_ALPHABET = string.ascii_uppercase + string.digits
+# Roles this script can grant. admin and super_admin both get full config-portal access
+# (only a super_admin can suspend another admin); ops can view everything and act on bookings.
+STAFF_ROLES = {"admin": UserRole.ADMIN, "super_admin": UserRole.SUPER_ADMIN, "ops": UserRole.OPS}
 
 
 def _generate_referral_code() -> str:
@@ -63,24 +70,22 @@ def _read_password() -> str:
     return password
 
 
-async def promote(email: str) -> None:
+async def promote(email: str, role: UserRole = UserRole.ADMIN) -> None:
     email = email.strip().lower()
     async with AsyncSessionLocal() as session:
-        user = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if user is None:
             raise SystemExit(f"No user found with email {email!r} — use `create` to bootstrap one.")
-        if user.role is UserRole.ADMIN:
-            print(f"{email} is already an admin. Nothing to do.")
+        if user.role is role:
+            print(f"{email} is already {role.value}. Nothing to do.")
             return
 
         previous_role = user.role.value
-        user.role = UserRole.ADMIN
+        user.role = role
         session.add(
             AuditLog(
                 actor_id=None,
-                action="user.promoted_to_admin",
+                action=f"user.promoted_to_{role.value}",
                 entity_type="user",
                 entity_id=str(user.id),
                 metadata_json=json.dumps({"previous_role": previous_role}),
@@ -88,10 +93,12 @@ async def promote(email: str) -> None:
             )
         )
         await session.commit()
-    print(f"Promoted {email} (was {previous_role}) to admin.")
+    print(f"Promoted {email} (was {previous_role}) to {role.value}.")
 
 
-async def create(*, email: str, phone_number: str, full_name: str) -> None:
+async def create(
+    *, email: str, phone_number: str, full_name: str, role: UserRole = UserRole.ADMIN
+) -> None:
     email = email.strip().lower()
     password = _read_password()
 
@@ -109,7 +116,7 @@ async def create(*, email: str, phone_number: str, full_name: str) -> None:
             email=email,
             hashed_password=hash_password(password),
             full_name=full_name,
-            role=UserRole.ADMIN,
+            role=role,
             status=UserStatus.ACTIVE,
             phone_number=phone_number,
             referral_code=_generate_referral_code(),
@@ -120,7 +127,7 @@ async def create(*, email: str, phone_number: str, full_name: str) -> None:
         session.add(
             AuditLog(
                 actor_id=None,
-                action="user.created_as_admin",
+                action=f"user.created_as_{role.value}",
                 entity_type="user",
                 entity_id=str(user.id),
                 metadata_json=None,
@@ -128,15 +135,13 @@ async def create(*, email: str, phone_number: str, full_name: str) -> None:
             )
         )
         await session.commit()
-    print(f"Created admin user {email}.")
+    print(f"Created {role.value} user {email}.")
 
 
 async def delete(email: str) -> None:
     email = email.strip().lower()
     async with AsyncSessionLocal() as session:
-        user = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if user is None:
             raise SystemExit(f"No user found with email {email!r}.")
         if user.status is UserStatus.DELETED:
@@ -164,13 +169,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    promote_parser = subparsers.add_parser("promote", help="Promote an existing user to admin.")
+    promote_parser = subparsers.add_parser(
+        "promote", help="Give an existing user a staff role (admin by default)."
+    )
     promote_parser.add_argument("--email", required=True)
+    promote_parser.add_argument("--role", choices=sorted(STAFF_ROLES), default="admin")
 
-    create_parser = subparsers.add_parser("create", help="Create a brand-new admin user.")
+    create_parser = subparsers.add_parser(
+        "create", help="Create a brand-new staff user (admin by default)."
+    )
     create_parser.add_argument("--email", required=True)
     create_parser.add_argument("--phone", required=True, dest="phone_number")
     create_parser.add_argument("--full-name", required=True, dest="full_name")
+    create_parser.add_argument("--role", choices=sorted(STAFF_ROLES), default="admin")
 
     delete_parser = subparsers.add_parser(
         "delete", help="Delete (deactivate) any user account by email."
@@ -180,10 +191,15 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "promote":
-        asyncio.run(promote(args.email))
+        asyncio.run(promote(args.email, STAFF_ROLES[args.role]))
     elif args.command == "create":
         asyncio.run(
-            create(email=args.email, phone_number=args.phone_number, full_name=args.full_name)
+            create(
+                email=args.email,
+                phone_number=args.phone_number,
+                full_name=args.full_name,
+                role=STAFF_ROLES[args.role],
+            )
         )
     else:
         asyncio.run(delete(args.email))

@@ -22,6 +22,11 @@ on:
         description: "promote an existing user, create a brand-new admin, or delete a user"
         options: [promote, create, delete]
         default: promote
+      role:
+        type: choice
+        description: "Role to grant (promote/create only): admin and super_admin = full portal access, ops = view + booking actions"
+        options: [admin, super_admin, ops]
+        default: admin
       email:
         description: "Email of the user to promote / create / delete"
         required: true
@@ -57,7 +62,7 @@ jobs:
             exit 1
           fi
 
-      - name: Promote existing user to admin
+      - name: Promote existing user to ${{ inputs.role }}
         if: inputs.mode == 'promote'
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
@@ -67,9 +72,9 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_SSL_REQUIRED: "true"
-        run: uv run python -m scripts.create_admin promote --email "${{ inputs.email }}"
+        run: uv run python -m scripts.create_admin promote --email "${{ inputs.email }}" --role "${{ inputs.role }}"
 
-      - name: Create new admin (prints a one-time generated password)
+      - name: Create new ${{ inputs.role }} (prints a one-time generated password)
         if: inputs.mode == 'create'
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
@@ -86,7 +91,8 @@ jobs:
           ADMIN_PASSWORD="$GENERATED_PASSWORD" uv run python -m scripts.create_admin create \
             --email "${{ inputs.email }}" \
             --phone "${{ inputs.phone_number }}" \
-            --full-name "${{ inputs.full_name }}"
+            --full-name "${{ inputs.full_name }}" \
+            --role "${{ inputs.role }}"
 
       - name: Delete (deactivate) user
         if: inputs.mode == 'delete'
