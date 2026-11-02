@@ -265,7 +265,8 @@ A patient can cancel (`POST /bookings/{id}/cancel`) until the visit starts.
   portal — unless the `verification.auto_approve` config is switched on.
 - **Admin/ops**: same JWT mechanism; accounts are provisioned with `scripts/create_admin.py`
   (no public self-signup for these roles). `admin` and `super_admin` have full config-portal
-  access; `ops` can read the operations screens and cancel/reopen bookings.
+  access; `ops` can read the operations screens and cancel/reopen bookings. Full matrix:
+  [ROLES.md](ROLES.md).
 - **Tokens**: access token (30 min) + rotating refresh token (7 days), HS256, role in the
   access-token claim. Browser clients get both as httponly cookies on path `/api` and never
   touch a token: `POST /auth/token/refresh` with no body reads the refresh cookie. Native
